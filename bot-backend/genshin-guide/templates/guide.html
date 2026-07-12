@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=800">
+<title>原神角色攻略</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<div class="guide-card">
+  <!-- 角色头部 -->
+  <div class="char-header">
+    <div class="char-name-block">
+      <h1 class="char-name">{{character.name}}</h1>
+      <div class="char-subtitle" id="char-subtitle">{{character.title}}</div>
+    </div>
+    <div class="char-meta">
+      <span class="badge badge-star">{{character.star}}★</span>
+      <span class="badge badge-elem" id="badge-elem">{{character.elem}}</span>
+      <span class="badge badge-weapon" id="badge-weapon">{{character.weapon}}</span>
+    </div>
+  </div>
+
+  <!-- 角色基础属性 -->
+  <div class="section attr-section" id="attr-section">
+    <h2 class="section-title">📊 基础属性 (Lv.90)</h2>
+    <div class="attr-grid">
+      <div class="attr-item">
+        <span class="attr-label">生命值</span>
+        <span class="attr-value" id="attr-hp">--</span>
+      </div>
+      <div class="attr-item">
+        <span class="attr-label">攻击力</span>
+        <span class="attr-value" id="attr-atk">--</span>
+      </div>
+      <div class="attr-item">
+        <span class="attr-label">防御力</span>
+        <span class="attr-value" id="attr-def">--</span>
+      </div>
+      <div class="attr-item">
+        <span class="attr-label">突破属性</span>
+        <span class="attr-value" id="attr-grow">--</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 推荐搭配 -->
+  <div class="section build-section" id="build-section">
+    <h2 class="section-title">⚔️ 推荐搭配 · {{buildName}}</h2>
+    <div class="build-grid">
+      <div class="build-col">
+        <h3>🗡️ 推荐武器</h3>
+        <ul id="weapon-list" class="equip-list"></ul>
+      </div>
+      <div class="build-col">
+        <h3>💎 推荐圣遗物</h3>
+        <ul id="artifact-list" class="equip-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 圣遗物词条权重 -->
+  <div class="section weight-section" id="weight-section">
+    <h2 class="section-title">⚖️ 词条权重参考</h2>
+    <div class="weight-bars" id="weight-bars"></div>
+  </div>
+
+  <!-- 圣遗物评分 (如果有) -->
+  <div class="section score-section" id="score-section" style="display:none;">
+    <h2 class="section-title">🏆 圣遗物评分</h2>
+    <div class="score-overview">
+      <div class="score-grade" id="score-grade">--</div>
+      <div class="score-number" id="score-number">--</div>
+    </div>
+    <div class="score-details" id="score-details"></div>
+  </div>
+
+  <!-- 底部 -->
+  <div class="footer">
+    <span>数据来源: miao-plugin · 评分仅供参考</span>
+  </div>
+</div>
+
+<script>
+// 角色数据注入
+const charData = CHARACTER_DATA_PLACEHOLDER;
+const weightData = WEIGHT_DATA_PLACEHOLDER;
+const scoreData = SCORE_DATA_PLACEHOLDER;
+
+// 填充属性
+if (charData && charData.baseAttr) {
+  document.getElementById('attr-hp').textContent = Math.round(charData.baseAttr.hp);
+  document.getElementById('attr-atk').textContent = Math.round(charData.baseAttr.atk);
+  document.getElementById('attr-def').textContent = Math.round(charData.baseAttr.def);
+}
+if (charData && charData.growAttr) {
+  const growMap = {
+    'cpct': '暴击率', 'cdmg': '暴击伤害', 'mastery': '元素精通',
+    'atkPct': '攻击力%', 'defPct': '防御力%', 'hpPct': '生命值%',
+    'recharge': '充能效率'
+  };
+  document.getElementById('attr-grow').textContent =
+    (growMap[charData.growAttr.key] || charData.growAttr.key) + ' +' + charData.growAttr.value + '%';
+}
+
+// 填充元素/武器中文名
+const elemMap = { pyro:'火', hydro:'水', electro:'雷', cryo:'冰', anemo:'风', geo:'岩', dendro:'草' };
+const weaponMap = { sword:'单手剑', bow:'弓', catalyst:'法器', polearm:'长柄武器', claymore:'双手剑' };
+document.getElementById('badge-elem').textContent = elemMap[charData?.elem] || charData?.elem || '--';
+document.getElementById('badge-weapon').textContent = weaponMap[charData?.weapon] || charData?.weapon || '--';
+
+// 填充词条权重条
+if (weightData) {
+  const weightLabels = {
+    hp:'生命值', atk:'攻击力', def:'防御力', cpct:'暴击率',
+    cdmg:'暴击伤害', mastery:'精通', dmg:'元素伤害', phy:'物伤',
+    recharge:'充能', heal:'治疗'
+  };
+  const colors = {
+    cpct:'#ff4444', cdmg:'#ff8800', dmg:'#cc44ff', atk:'#ffcc00',
+    mastery:'#44cc44', recharge:'#4488ff', hp:'#66aa66', def:'#888888',
+    phy:'#cccccc', heal:'#ff88cc'
+  };
+  const container = document.getElementById('weight-bars');
+  for (const [key, label] of Object.entries(weightLabels)) {
+    const val = weightData[key] || 0;
+    if (val <= 0) continue;
+    const bar = document.createElement('div');
+    bar.className = 'weight-bar';
+    bar.innerHTML = `
+      <span class="weight-label">${label}</span>
+      <div class="weight-track">
+        <div class="weight-fill" style="width:${val}%;background:${colors[key] || '#666'}"></div>
+      </div>
+      <span class="weight-value">${val}</span>
+    `;
+    container.appendChild(bar);
+  }
+}
+
+// 填充圣遗物评分
+if (scoreData && scoreData.length > 0) {
+  document.getElementById('score-section').style.display = '';
+  // ... 评分细节渲染
+}
+</script>
+</body>
+</html>

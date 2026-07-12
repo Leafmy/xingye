@@ -1,0 +1,38 @@
+# Local credentials and runtime state
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+**/data/
+**/logs/
+**/config/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+.service-pids
+
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/.vite/
+app/
+release/
+.git-work/
+.update-temp/
+.update-backup/
+**/.miao-temp/
+**/.liangshi-temp/
+
+# Local/editor files
+.idea/
+.vscode/
+.trae/
+.mimocode/
+*.user
+*.suo
+
+# Unrelated local media and scratch files
+IMG_20260608_160823..jpg
+nul

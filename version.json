@@ -1,0 +1,11 @@
+{
+  "version": "0.5.0",
+  "build": 2,
+  "release": "0.5.0-build.2",
+  "githubRepo": "",
+  "major": 0,
+  "minor": 5,
+  "patch": 0,
+  "preRelease": "dev",
+  "description": "星野 Xingye Bot - 修复Enka服务，移除第三方依赖"
+}
