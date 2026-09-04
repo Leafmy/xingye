@@ -1,41 +1,55 @@
-# Xingye
+# 星野 Xingye
 
-Xingye Bot desktop and server distribution.
+QQ 智能助手「星野」—— Tauri 桌面应用（Windows）+ 服务器分发版。
 
-## Local development
+## 项目结构
 
-```powershell
-npm.cmd install
-npm.cmd run build:backend
-npm.cmd run build:frontend
+```
+Xingye/
+├── src-tauri/            # Tauri 桌面壳（Rust）：窗口、托盘、子进程管理、单实例、自启动
+│   ├── src/              #   壳源码（process.rs 管理子进程，tray.rs 托盘菜单）
+│   └── capabilities/     #   权限声明（窗口控制、自启动等）
+├── panel-frontend/       # 管理面板前端（Vue 3 + Vite，BakaXL 风格玻璃 UI）
+├── bot-backend/          # 业务后端（TypeScript/Express，:3000，托管面板与 API）
+│   └── genshin-guide/    #   原神攻略模块（miao/liangshi 元数据用 init 脚本拉取）
+├── SnowLuma/             # QQ 协议客户端（Node，:5099 WebUI，OneBot :3001）
+├── app/                  # 服务器分发版布局模板（打包源）
+├── updater/              # 服务器增量更新器
+├── scripts/              # 构建 / GitHub 发布脚本
+├── docs/                 # 历史文档（更新报告、部署指南等）
+├── tests/                # 更新器单元测试
+└── version.json          # 版本号单一来源（backend /api/version 与更新检查共用）
 ```
 
-Copy `bot-backend/.env.example` to `bot-backend/.env` and fill in credentials locally.
-Runtime data, credentials, logs and generated packages are intentionally ignored.
+## 桌面版
 
-## Release
+双击 `src-tauri/target/release/xingye.exe`（开发时先 `build-tauri.bat`，调试用 `dev-tauri.bat`）。
 
-Run `release.bat` or:
+- 壳自动拉起 SnowLuma 与 bot-backend 子进程，托盘可「显示窗口 / 重启服务 / 开机自启 / 退出」
+- 单实例锁：重复启动会聚焦已有窗口
+- 关闭按钮 = 隐藏到托盘；托盘右键「退出」才真正结束
+- 子进程日志落盘：`src-tauri/target/release/{SnowLuma,app/bot-backend}/logs/`
+
+## 本地开发
 
 ```powershell
-node scripts/release.js --repo OWNER/xingye
+npm.cmd run build:backend     # tsc 编译 bot-backend
+npm.cmd run build:frontend    # vite 构建面板
 ```
 
-The command increments `build`, creates a `x.y.z-build.N` release, builds the
-full and incremental packages, writes SHA-256 checksums, and publishes a public
-GitHub Release through `gh`.
+改前端后需重跑 `cargo build --release`（UI 编译时嵌入 exe），且编译前先退出桌面版。
 
-Use `--dry-run` to build and inspect assets without publishing.
+## 发布
 
-## Server update
+`release.bat` 或 `node scripts/release.js --repo OWNER/xingye`，支持 `--dry-run`。
 
-Set `XINGYE_GITHUB_REPO=OWNER/xingye` on the server, then use:
+## 服务器更新
+
+服务器上设置 `XINGYE_GITHUB_REPO=Leafmy/xingye` 后：
 
 ```powershell
 node updater/server-update.js check
 node updater/server-update.js apply
 ```
 
-The updater preserves `.env`, databases, logs, runtime configuration, data and
-installed dependencies. It uses a matching incremental package and falls back
-to the full package when the local release is not the patch source version.
+更新器保留 `.env`、数据库、日志与运行时配置，优先增量包、失败回退全量。详见 `docs/DEPLOY-GUIDE.md`。
