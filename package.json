@@ -2,13 +2,10 @@
   "name": "xingye",
   "version": "0.6.0",
   "description": "星野 Xingye Bot - QQ 智能助手桌面应用",
-  "main": "electron/main.js",
   "scripts": {
-    "start": "electron .",
     "build:backend": "cd bot-backend && npm run build",
     "build:frontend": "cd panel-frontend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "build:electron": "npm run build:all && electron-builder",
     "build:patch": "node scripts/build.js --patch",
     "build:full": "node scripts/build.js --full",
     "build:release": "node scripts/build.js --release",
@@ -16,42 +13,5 @@
     "release:dry-run": "node scripts/release.js --dry-run",
     "update:check": "node updater/server-update.js check",
     "update:apply": "node updater/server-update.js apply"
-  },
-  "devDependencies": {
-    "electron": "^35.0.0",
-    "electron-builder": "^26.0.0"
-  },
-  "build": {
-    "appId": "com.xingye.bot",
-    "productName": "星野 Xingye",
-    "directories": {
-      "output": "release",
-      "app": "."
-    },
-    "files": [
-      "electron/**/*",
-      "updater/**/*",
-      "app/**/*",
-      "node/**/*",
-      "assets/**/*",
-      "!**/node_modules/**/{test,__tests__,tests}/**",
-      "!**/*.{md,txt,log}"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": ["x64"]
-        }
-      ],
-      "icon": "assets/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "星野 Xingye"
-    }
   }
 }

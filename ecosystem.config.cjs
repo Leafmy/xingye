@@ -25,15 +25,6 @@ module.exports = {
         STEAM_API_BASE: process.env.STEAM_API_BASE || 'https://api.steampowered.com',
         STEAM_STORE_BASE: process.env.STEAM_STORE_BASE || 'https://store.steampowered.com'
       }
-    },
-    {
-      name: 'xingye-frontend',
-      cwd: path.join(root, 'panel-frontend'),
-      script: path.join(root, 'panel-frontend', 'pm2-start.cjs'),
-      interpreter: 'node',
-      autorestart: true,
-      watch: false,
-      env: { NODE_ENV: 'development' }
     }
   ]
 }
