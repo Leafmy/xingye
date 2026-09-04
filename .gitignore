@@ -46,6 +46,9 @@ bot-backend/.miao-temp/
 SnowLuma/native/
 BBDown/*.exe
 
+# Root runtime binary (copied from src-tauri/target/release after build)
+/xingye.exe
+
 # Distributions and workbuddy workspace state
 *.tar.gz
 .workbuddy/

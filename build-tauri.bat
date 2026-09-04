@@ -26,9 +26,19 @@ if errorlevel 1 (
 )
 
 echo.
+echo [3/3] Copying exe to project root...
+copy /y "%~dp0src-tauri\target\release\xingye.exe" "%~dp0xingye.exe" >nul
+if errorlevel 1 (
+    echo Copy failed (is xingye.exe running?)!
+    pause
+    exit /b 1
+)
+
+echo.
 echo ========================================
 echo   Build complete!
-echo   Output: src-tauri/target/release/bundle/
+echo   App:     xingye.exe (project root)
+echo   Bundle:  src-tauri\target\release\bundle\
 echo ========================================
 echo.
 pause

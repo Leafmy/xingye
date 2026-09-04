@@ -19,8 +19,15 @@ const execFileAsync = promisify(execFile);
 const app = express();
 app.use(cors());
 app.use(express.json());
-// 静态文件托管（panel-frontend 构建产物）
-app.use(express.static(path.join(__dirname, '..', 'panel-frontend', 'dist')))
+// 静态文件托管（panel-frontend 构建产物，多布局回退）：
+//   开发/根目录布局: bot-backend/panel-frontend/dist
+//   打包布局(app/):  app/panel-frontend/dist
+const PANEL_DIST_CANDIDATES = [
+  path.join(__dirname, '..', 'panel-frontend', 'dist'),
+  path.join(__dirname, '..', '..', 'panel-frontend', 'dist'),
+];
+const PANEL_DIST = PANEL_DIST_CANDIDATES.find(p => fs.existsSync(path.join(p, 'index.html'))) || PANEL_DIST_CANDIDATES[0];
+app.use(express.static(PANEL_DIST))
 
 // ================= Configuration =================
 const BOT_QQ = 3853499326;

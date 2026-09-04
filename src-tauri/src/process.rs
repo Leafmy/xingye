@@ -148,6 +148,13 @@ pub async fn start_backend(
         .stdout(std::process::Stdio::from(open_log(&log_dir, "backend.log")))
         .stderr(std::process::Stdio::from(open_log(&log_dir, "backend.log")));
 
+    // 根目录布局下 app/bot-backend 是打包模板（无 node_modules），
+    // 回退解析根目录源码 bot-backend/node_modules
+    let src_modules = resource_dir.join("bot-backend").join("node_modules");
+    if src_modules.exists() {
+        cmd.env("NODE_PATH", plain_path(&src_modules));
+    }
+
     // 设置环境变量
     cmd.env("NODE_ENV", "production");
     if let Ok(proxy) = std::env::var("STEAM_PROXY_URL") {

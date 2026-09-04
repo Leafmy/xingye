@@ -140,6 +140,13 @@ function buildDesktopBundle() {
   if (!setupFiles.length) fail('No NSIS setup exe produced');
   const setupName = setupFiles.sort().pop();
   fs.copyFileSync(path.join(bundleDir, setupName), path.join(DIST_DIR, setupName));
+  // 同步 exe 到项目根目录（桌面 App 主入口）
+  try {
+    fs.copyFileSync(path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'xingye.exe'), path.join(ROOT_DIR, 'xingye.exe'));
+    log('Root binary updated: xingye.exe');
+  } catch (e) {
+    log(`Warning: failed to copy root xingye.exe: ${e.message} (is it running?)`);
+  }
   log(`Desktop installer: ${setupName}`);
   return setupName;
 }
