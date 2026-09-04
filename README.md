@@ -1,15 +1,18 @@
 <div align="center">
 
-<img src="source/panel-frontend/public/xingye-logo.png" width="120" alt="星野 Xingye" />
+![星野 Xingye](source/panel-frontend/public/xingye-logo.png)
 
 # 星野 Xingye
 
 **一个桌面级的 QQ 智能助手 —— 原生窗口、内置引擎、全功能管理面板**
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](../../releases)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](../../releases)
-[![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB)](https://tauri.app)
-[![Vue](https://img.shields.io/badge/Vue-3-4FC08D)](https://vuejs.org)
+![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)
+
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)
+
+![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB)
+
+![Vue](https://img.shields.io/badge/Vue-3-4FC08D)
 
 *下载最新版本请前往 [Releases](../../releases)*
 
@@ -19,10 +22,10 @@
 
 ## ✨ 它是什么
 
-星野是一个常驻你桌面、接入 QQ 群聊与私聊的智能助手。安装后它会在托盘安静运行，
+星野是一个常驻你桌面、接入 QQ 群聊与私聊的智能助手。安装后它会在托盘安静运行，  
 自动完成 QQ 进程注入与消息处理，你只需要在漂亮的面板里管理一切。
 
-> ⚠️ **免责声明**：本项目通过非官方方式（进程注入）接入 QQ，仅供学习与技术研究。
+> ⚠️ **免责声明**：本项目通过非官方方式（进程注入）接入 QQ，仅供学习与技术研究。  
 > 使用本项目产生的任何账号风险（包括封禁）由使用者自行承担。请勿用于商业或违法用途。
 
 ## 🎁 特性一览
@@ -33,7 +36,7 @@
 - 🎮 **游戏能力** —— Steam 战绩查询、游戏时长排行、促销战报订阅推送、CS2 查询、5E 绑定
 - 📺 **B 站集成** —— 视频解析下载（BBDown）、TV 扫码登录
 - ⚔️ **原神攻略** —— 角色面板与攻略图生成（米游社元数据）
-- 🐧 **QQ 引擎内建** —— SnowLuma 引擎作为内部组件，进程注入/卸载、账号配置热重载、
+- 🐧 **QQ 引擎内建** —— SnowLuma 引擎作为内部组件，进程注入/卸载、账号配置热重载、  
   实时日志流全部在面板「QQ 管理」页完成，**无需接触任何第三方 WebUI**
 - 📦 **自更新** —— 安装包带 minisign 签名校验，新版本发布后面板内一键升级
 - 🌐 **本地 / 远程双模式** —— 面板可直连本机引擎，也可远程管理部署在服务器上的星野
@@ -45,9 +48,10 @@
 3. 启动后首次使用请在面板「QQ 管理」中完成引擎绑定，然后登录 QQ 即可
 
 <details>
+
 <summary><b>不装安装包？绿色运行</b></summary>
 
-直接下载 Release 附件中的安装包安装即可；开发者在项目根目录构建后
+直接下载 Release 附件中的安装包安装即可；开发者在项目根目录构建后  
 `xingye.exe` 会自动出现在仓库根目录，双击即可（需先运行 `build-tauri.bat`）。
 
 </details>
@@ -61,22 +65,22 @@ build-tauri.bat
 :: 构建完成 → xingye.exe（根目录）+ source\src-tauri\target\release\bundle\nsis\ 安装包
 ```
 
-要求：Node.js 18+、Rust (MSVC)、WebView2（Win11 自带）。
+要求：Node.js 18+、Rust (MSVC)、WebView2（Win11 自带）。  
 开发模式（热重载）用 `dev-tauri.bat`。完整说明见 [source/docs/DEVELOPMENT.md](source/docs/DEVELOPMENT.md)。
 
 ## 🧩 功能面板
 
-| 页面 | 说明 |
-|---|---|
-| 总览 | 服务状态、资源图表、告警一览 |
-| 用量 | AI Token 消耗统计 |
-| 功能管理 | 订阅/绑定/群组/功能开关 |
-| 系统设置 | 应用自更新、群唤醒、广播、Prompt 热改 |
-| 日志 | 后端实时日志（SSE） |
-| 消息 / 终端 | 手动发消息、Web CLI |
-| 好友管理 | 白名单自动通过 |
+| 页面        | 说明                     |
+| --------- | ---------------------- |
+| 总览        | 服务状态、资源图表、告警一览         |
+| 用量        | AI Token 消耗统计          |
+| 功能管理      | 订阅/绑定/群组/功能开关          |
+| 系统设置      | 应用自更新、群唤醒、广播、Prompt 热改 |
+| 日志        | 后端实时日志（SSE）            |
+| 消息 / 终端   | 手动发消息、Web CLI          |
+| 好友管理      | 白名单自动通过                |
 | **QQ 管理** | 进程注入、账号配置热重载、实时日志、更新检查 |
-| 连接 | 本地 / 远程服务器切换 |
+| 连接        | 本地 / 远程服务器切换           |
 
 ## 🏗️ 技术栈
 

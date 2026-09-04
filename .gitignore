@@ -17,6 +17,8 @@
 **/node_modules/
 **/dist/
 **/.vite/
+app/bot-backend/logs/
+app/bot-backend/dist/data/
 app/
 release/
 .git-work/

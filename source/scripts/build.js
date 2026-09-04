@@ -77,7 +77,7 @@ function prepareAppDir() {
   fs.rmSync(APP_DIR, { recursive: true, force: true });
   fs.mkdirSync(APP_DIR, { recursive: true });
 
-  copyDirectory(path.join(SOURCE_DIR, 'bot-backend'), path.join(APP_DIR, 'bot-backend'), new Set(['node_modules', 'data', '.env', 'dist']));
+  copyDirectory(path.join(SOURCE_DIR, 'bot-backend'), path.join(APP_DIR, 'bot-backend'), new Set(['data', '.env', 'dist']));
   copyDirectory(path.join(SOURCE_DIR, 'bot-backend', 'dist'), path.join(APP_DIR, 'bot-backend', 'dist'));
   copyDirectory(path.join(SOURCE_DIR, 'panel-frontend', 'dist'), path.join(APP_DIR, 'panel-frontend', 'dist'));
   copyFileIfExists(path.join(SOURCE_DIR, 'panel-frontend', 'package.json'), path.join(APP_DIR, 'panel-frontend', 'package.json'));
@@ -128,7 +128,7 @@ function buildDesktopBundle() {
   const env = { ...process.env };
   const keyPath = path.join(process.env.USERPROFILE || '', '.tauri', 'xingye.key');
   if (fs.existsSync(keyPath)) {
-    env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+    env.TAURI_SIGNING_PRIVATE_KEY = keyPath;
     env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '';
   } else {
     log('Warning: updater signing key not found at ~/.tauri/xingye.key, updates will not be signed');

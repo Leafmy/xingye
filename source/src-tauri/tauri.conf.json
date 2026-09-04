@@ -4,9 +4,9 @@
   "version": "0.6.0",
   "identifier": "com.xingye.bot",
   "build": {
-    "beforeDevCommand": "cd panel-frontend && npm run dev",
+    "beforeDevCommand": "cd ../panel-frontend && npm run dev",
     "devUrl": "http://localhost:5174",
-    "beforeBuildCommand": "cd panel-frontend && npm run build",
+    "beforeBuildCommand": "cd ../panel-frontend && npm run build",
     "frontendDist": "../panel-frontend/dist"
   },
   "app": {
@@ -41,8 +41,21 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../../app/**/*",
-      "../../SnowLuma/**/*",
+      "../../app/bot-backend/dist/**/*",
+      "../../app/bot-backend/node_modules/**/*",
+      "../../app/bot-backend/package.json",
+      "../../app/panel-frontend/dist/**/*",
+      "../../app/updater/**/*",
+      "../../app/version.json",
+      "../../app/manifest.json",
+      "../../SnowLuma/index.mjs",
+      "../../SnowLuma/*.js",
+      "../../SnowLuma/package.json",
+      "../../SnowLuma/package-lock.json",
+      "../../SnowLuma/launcher.bat",
+      "../../SnowLuma/client/**/*",
+      "../../SnowLuma/native/**/*",
+      "../../SnowLuma/config/**/*",
       "../../BBDown/**/*"
     ]
   },

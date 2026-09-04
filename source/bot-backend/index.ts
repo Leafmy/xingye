@@ -550,7 +550,7 @@ function canSendMenu(groupId: number): boolean {
 }
 
 // ================= Data Persistence =================
-const dataDir = path.join(__dirname, 'data');
+const dataDir = path.join(APP_ROOT, 'data');
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {
