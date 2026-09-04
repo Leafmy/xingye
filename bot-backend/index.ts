@@ -2563,6 +2563,114 @@ app.get('/api/version', (req, res) => {
   res.json({ success: true, version: APP_VERSION, release, build });
 });
 
+// ================= SnowLuma WebUI 代理（面板内管理 QQ 注入，免开 :5099） =================
+const SNOWLUMA_WEBUI = 'http://127.0.0.1:5099';
+const SNOWLUMA_AUTH_FILE = path.join(dataDir, 'snowluma_auth.json');
+let snowlumaToken = '';
+let snowlumaPassword = '';
+
+try {
+  if (fs.existsSync(SNOWLUMA_AUTH_FILE)) {
+    snowlumaPassword = JSON.parse(fs.readFileSync(SNOWLUMA_AUTH_FILE, 'utf8')).password || '';
+    if (snowlumaPassword) {
+      snowlumaLogin(snowlumaPassword).then(t => { snowlumaToken = t; console.log('[SnowLuma] 代理已自动登录'); })
+        .catch(() => console.log('[SnowLuma] 自动登录失败，请在面板重新输入密码'));
+    }
+  }
+} catch { /* ignore */ }
+
+async function snowlumaLogin(password: string): Promise<string> {
+  const resp = await fetch(`${SNOWLUMA_WEBUI}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+    signal: AbortSignal.timeout(5000)
+  });
+  const data = await resp.json().catch(() => ({} as any)) as any;
+  if (!resp.ok || !data.token) throw new Error(data.message || `登录失败(${resp.status})`);
+  return data.token as string;
+}
+
+function saveSnowlumaAuth(password: string) {
+  snowlumaPassword = password;
+  try { fs.writeFileSync(SNOWLUMA_AUTH_FILE, JSON.stringify({ password }, null, 2)); } catch {}
+}
+
+async function snowlumaFetch(pathname: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  if (!snowlumaToken) throw new Error('尚未配置 SnowLuma 密码');
+  const resp = await fetch(`${SNOWLUMA_WEBUI}${pathname}`, {
+    ...init,
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${snowlumaToken}` },
+    signal: init.signal ?? AbortSignal.timeout(10000)
+  });
+  if (resp.status === 401 && !retried && snowlumaPassword) {
+    snowlumaToken = await snowlumaLogin(snowlumaPassword); // token 过期自动重登一次
+    return snowlumaFetch(pathname, init, true);
+  }
+  return resp;
+}
+
+app.get('/api/snowluma/auth/state', (req, res) => {
+  res.json({ success: true, configured: Boolean(snowlumaPassword || snowlumaToken) });
+});
+
+app.post('/api/snowluma/auth', async (req, res) => {
+  const { password } = req.body || {};
+  if (typeof password !== 'string' || !password) {
+    res.json({ success: false, message: '缺少密码' });
+    return;
+  }
+  try {
+    snowlumaToken = await snowlumaLogin(password);
+    saveSnowlumaAuth(password);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+app.post('/api/snowluma/auth/clear', (req, res) => {
+  snowlumaToken = '';
+  snowlumaPassword = '';
+  try { fs.rmSync(SNOWLUMA_AUTH_FILE, { force: true }); } catch {}
+  res.json({ success: true });
+});
+
+// QQ 进程手动注入/卸载
+app.post('/api/snowluma/processes/:pid/:action', async (req, res) => {
+  const { pid, action } = req.params;
+  if (!['load', 'unload', 'refresh'].includes(action)) {
+    res.json({ success: false, message: '不支持的操作' });
+    return;
+  }
+  try {
+    const resp = await snowlumaFetch(`/api/processes/${pid}/${action}`, { method: 'POST' });
+    const data = await resp.json().catch(() => ({}));
+    res.status(resp.status).json(data);
+  } catch (e: any) {
+    res.json({ success: false, message: e.message });
+  }
+});
+
+// 通用只读转发：system/qq-list/connections/processes/logs
+const SNOWLUMA_READONLY = ['/api/system', '/api/qq-list', '/api/connections', '/api/processes', '/api/logs'];
+app.get('/api/snowluma/proxy/*splat', async (req, res) => {
+  const sub = '/' + String(req.params.splat || '');
+  if (!SNOWLUMA_READONLY.some(p => sub === p || sub.startsWith(p + '?') || sub.startsWith(p + '/'))) {
+    res.status(403).json({ success: false, message: '不支持的转发路径' });
+    return;
+  }
+  const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
+  try {
+    const resp = await snowlumaFetch(sub + query);
+    const data = await resp.text();
+    res.status(resp.status).type('json').send(data);
+  } catch (e: any) {
+    res.status(502).json({ success: false, message: e.message });
+  }
+});
+
+
 app.get('/api/check-update', async (req, res) => {
   try {
     const result = await createUpdater().checkForUpdates();

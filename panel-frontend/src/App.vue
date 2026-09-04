@@ -84,6 +84,7 @@ const navItems = [
   { key: 'messaging', label: '消息', desc: '发送群消息', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>' },
   { key: 'cli', label: '终端', desc: 'Web CLI', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>' },
   { key: 'friendmgmt', label: '好友管理', desc: '好友申请与白名单', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+  { key: 'qqmgmt', label: 'QQ 管理', desc: 'SnowLuma 注入与进程', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>' },
   { key: 'connection', label: '连接', desc: '服务器连接配置', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' },
 ]
 
@@ -152,6 +153,61 @@ const statCards = computed(() => [
   { label: '已知群组', val: String(metrics.value.connectedGroups), sub: '绑定 ' + metrics.value.boundUsers, color: '#2893f0', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>', iconClass: '', tab: '' },
   { label: '系统运行', val: formattedUptime.value, sub: uptimeFull.value, color: '#2893f0', icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>', iconClass: '', tab: '' },
 ])
+
+// ================= SnowLuma（QQ 管理） =================
+interface SnowProcess { pid: number; name: string; injected: boolean; connected: boolean; loggedIn: boolean; uin: string | null; status: string; error: string | null; method: string }
+interface SnowConn { uin?: string; status?: string; [k: string]: unknown }
+const snowAuthed = ref<boolean | null>(null)   // null = 未知
+const snowPasswordInput = ref('')
+const snowAuthMsg = ref('')
+const snowProcesses = ref<SnowProcess[]>([])
+const snowConnections = ref<SnowConn[]>([])
+const snowAccounts = ref<{ uin: number; nickname: string }[]>([])
+const snowLogs = ref<{ timestamp: string; level: string; message: string }[]>([])
+const snowLoading = ref(false)
+
+async function snowAuthState() {
+  try { const res = await serverFetch('/api/snowluma/auth/state'); const d = await res.json(); snowAuthed.value = Boolean(d.configured) } catch { snowAuthed.value = false }
+}
+async function snowAuth() {
+  if (!snowPasswordInput.value.trim()) return
+  snowAuthMsg.value = ''
+  try {
+    const res = await serverFetch('/api/snowluma/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: snowPasswordInput.value }) })
+    const d = await res.json()
+    if (d.success) { snowAuthed.value = true; snowPasswordInput.value = ''; snowAuthMsg.value = ''; refreshSnowData() }
+    else snowAuthMsg.value = d.message || '登录失败'
+  } catch (e: any) { snowAuthMsg.value = e.message }
+}
+async function snowAuthClear() {
+  try { await serverFetch('/api/snowluma/auth/clear', { method: 'POST' }) } catch {}
+  snowAuthed.value = false; snowAuthMsg.value = ''
+}
+async function refreshSnowData() {
+  if (snowAuthed.value !== true) return
+  snowLoading.value = true
+  try {
+    const [p, c, q, l] = await Promise.all([
+      serverFetch('/api/snowluma/proxy/api/processes'),
+      serverFetch('/api/snowluma/proxy/api/connections'),
+      serverFetch('/api/snowluma/proxy/api/qq-list'),
+      serverFetch('/api/snowluma/proxy/api/logs?limit=80'),
+    ])
+    const [pd, cd, qd, ld] = await Promise.all([p.json(), c.json(), q.json(), l.json()])
+    snowProcesses.value = pd.list || []
+    snowConnections.value = cd.list || []
+    snowAccounts.value = qd.list || []
+    snowLogs.value = (ld.list || []).reverse()
+    if (p.status === 401) snowAuthed.value = false
+  } catch {}
+  snowLoading.value = false
+}
+async function snowProcAction(pid: number, action: 'load' | 'unload') {
+  try { await serverFetch(`/api/snowluma/processes/${pid}/${action}`, { method: 'POST' }); setTimeout(refreshSnowData, 800) } catch {}
+}
+watch(activeTab, (tab) => {
+  if (tab === 'qqmgmt') { if (snowAuthed.value === null) snowAuthState().then(() => refreshSnowData()); else refreshSnowData() }
+})
 
 // ================= Date-range padding helper =================
 function padDateRange(
@@ -1613,6 +1669,87 @@ onMounted(() => {
                 </div>
               </div>
             </div>
+          </div>
+
+          <!-- QQ 管理（SnowLuma） -->
+          <div v-if="activeTab === 'qqmgmt'" class="settings-page">
+            <div class="settings-header">
+              <h2 class="usage-title">QQ 管理</h2>
+              <p class="usage-subtitle">SnowLuma 进程注入与账号状态 · 无需单独打开 WebUI</p>
+            </div>
+
+            <div v-if="snowAuthed === false" class="panel anim-fade-up">
+              <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">🔐</span> 连接 SnowLuma</div><div class="panel-desc">输入 SnowLuma WebUI 密码（只需一次，此后自动续期）</div></div></div>
+              <div class="panel-body">
+                <div class="msg-form">
+                  <input v-model="snowPasswordInput" @keydown.enter="snowAuth" type="password" placeholder="SnowLuma WebUI 密码" class="text-input flex1" />
+                  <button class="btn-primary" @click="snowAuth" :disabled="!snowPasswordInput.trim()">连接</button>
+                </div>
+                <div v-if="snowAuthMsg" class="msg-toast error">{{ snowAuthMsg }}</div>
+              </div>
+            </div>
+
+            <template v-if="snowAuthed === true">
+              <div class="panel anim-fade-up">
+                <div class="panel-header">
+                  <div><div class="panel-title"><span class="panel-title-icon">🐧</span> QQ 进程与注入</div><div class="panel-desc">劫持 QQ 进程注入 SnowLuma（hookAutoLoad 开启时自动注入）</div></div>
+                  <div style="display:flex;gap:8px">
+                    <button class="btn-outline" style="font-size:11px;padding:6px 14px" @click="refreshSnowData" :disabled="snowLoading">刷新</button>
+                    <button class="btn-xs" @click="snowAuthClear">解除绑定</button>
+                  </div>
+                </div>
+                <div class="panel-body settings-body">
+                  <div v-if="snowLoading && snowProcesses.length === 0" class="empty-chart">加载中...</div>
+                  <div v-else-if="snowProcesses.length === 0" class="empty-chart">未发现 QQ 进程，请先登录 QQ</div>
+                  <div v-else class="settings-list">
+                    <div v-for="p in snowProcesses" :key="p.pid" class="settings-item">
+                      <div class="settings-item-head">
+                        <span class="settings-user-id">PID {{ p.pid }} · {{ p.name }}<span v-if="p.uin" class="settings-acc-id">{{ p.uin }}</span></span>
+                        <span class="settings-badge" :style="p.loggedIn ? 'background:rgba(22,163,74,0.12);color:var(--success-text)' : ''">{{ p.status }}</span>
+                      </div>
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span class="settings-badge">{{ p.injected ? '已注入' : '未注入' }}</span>
+                        <span class="settings-badge">{{ p.connected ? '管道已连接' : '管道未连' }}</span>
+                        <span v-if="p.error" class="settings-badge" style="color:var(--destructive)">{{ p.error }}</span>
+                        <button v-if="!p.injected" class="btn-primary" style="font-size:11px;padding:4px 14px" @click="snowProcAction(p.pid, 'load')">注入</button>
+                        <button v-else class="btn-xs" @click="snowProcAction(p.pid, 'unload')">卸载</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel anim-fade-up" style="margin-top:16px">
+                <div class="panel-header">
+                  <div><div class="panel-title"><span class="panel-title-icon">👤</span> 已登录账号</div><div class="panel-desc">{{ snowAccounts.length }} 个账号 · 连接 {{ snowConnections.length }} 条</div></div>
+                </div>
+                <div class="panel-body settings-body">
+                  <div v-if="snowAccounts.length === 0" class="empty-chart">暂无已登录账号</div>
+                  <div v-else class="settings-list">
+                    <div v-for="a in snowAccounts" :key="a.uin" class="settings-item">
+                      <div class="settings-item-head">
+                        <span class="settings-user-id">{{ a.nickname || '未知昵称' }}<span class="settings-acc-id">{{ a.uin }}</span></span>
+                        <span class="settings-badge">在线</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="panel anim-fade-up" style="margin-top:16px">
+                <div class="panel-header">
+                  <div><div class="panel-title"><span class="panel-title-icon">📜</span> SnowLuma 日志</div><div class="panel-desc">最近 80 条 · 面板内直接查看</div></div>
+                </div>
+                <div class="panel-body settings-body" style="max-height:320px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.7">
+                  <div v-if="snowLogs.length === 0" class="empty-chart">暂无日志</div>
+                  <div v-for="(l, i) in snowLogs" :key="i" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                    <span style="color:var(--muted-foreground)">{{ l.timestamp }}</span>
+                    <span :style="{ color: logColor(l.level) }"> {{ l.level.toUpperCase() }}</span>
+                    <span> {{ l.message }}</span>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
 
           <!-- 服务器连接配置 -->
