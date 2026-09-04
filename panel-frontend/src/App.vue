@@ -1747,9 +1747,71 @@ onMounted(() => {
   --glass-card: rgba(255, 255, 255, 0.72);
   --glass-sidebar: rgba(255, 255, 255, 0.66);
   --glass-blur: blur(28px) saturate(1.6);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-border-soft: rgba(255, 255, 255, 0.55);
+  --inset-bg: rgba(255, 255, 255, 0.45);
+  --inset-bg-strong: rgba(255, 255, 255, 0.55);
+  --inset-border: rgba(0, 0, 0, 0.08);
+  --outline-border: #c9c9c9;
+  --badge-bg: rgba(0, 0, 0, 0.05);
+  --modal-bg: rgba(255, 255, 255, 0.88);
+  --tooltip-bg: #ffffff;
+  --tooltip-fg: #2b2b2b;
+  --scrollbar-thumb: #cfcfcf;
+  --scrollbar-thumb-hover: #b8b8b8;
   --chart-blue: #2893f0;
   --chart-cyan: #28c8f0;
   --chart-violet: #7c6ff0;
+  color-scheme: light;
+}
+
+/* ========== 深色模式：跟随系统（BakaXL 暗色变量：基底 rgb(32,32,32)） ========== */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #202020;
+    --foreground: #e8e8e8;
+    --card: #2a2a2a;
+    --card-foreground: #e8e8e8;
+    --secondary: #333333;
+    --muted: #2e2e2e;
+    --muted-foreground: #b4b4b4;
+    --accent: rgba(40, 147, 240, 0.18);
+    --accent-foreground: #6cb8f8;
+    --border: #3a3a3a;
+    --sidebar-bg: #242424;
+    --sidebar-border: #3a3a3a;
+    --sidebar-accent: rgba(40, 147, 240, 0.15);
+    --header-bg: rgba(32, 32, 32, 0.6);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-card-hover: 0 6px 20px rgba(40, 147, 240, 0.22);
+    --glass-card: rgba(42, 42, 42, 0.72);
+    --glass-sidebar: rgba(32, 32, 32, 0.66);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-border-soft: rgba(255, 255, 255, 0.08);
+    --inset-bg: rgba(255, 255, 255, 0.05);
+    --inset-bg-strong: rgba(255, 255, 255, 0.07);
+    --inset-border: rgba(255, 255, 255, 0.08);
+    --outline-border: #4a4a4a;
+    --badge-bg: rgba(255, 255, 255, 0.08);
+    --modal-bg: rgba(40, 40, 40, 0.92);
+    --tooltip-bg: #333333;
+    --tooltip-fg: #e8e8e8;
+    --scrollbar-thumb: #4a4a4a;
+    --scrollbar-thumb-hover: #5a5a5a;
+    --success-text: #78e75b;   /* BakaXL 亮绿在暗底上直接可用 */
+    color-scheme: dark;
+  }
+  .app {
+    background:
+      radial-gradient(circle at calc(100% - 95px) calc(100% - 95px), rgba(255, 255, 255, 0.07) 180px, rgba(255, 255, 255, 0) 400px),
+      radial-gradient(circle at 120px 15%, rgba(40, 147, 240, 0.28) 0%, rgba(40, 147, 240, 0) 340px),
+      linear-gradient(140deg, rgba(40, 147, 240, 0.20) 0px, rgba(40, 147, 240, 0.04) 320px, rgba(124, 111, 240, 0.10) 62%, rgba(40, 147, 240, 0.14) 100%),
+      var(--background);
+  }
+  .level-info { color: #5ab0f5; }
+  .level-success { color: #78e75b; }
+  .level-warn { color: #fbbf24; }
+  .level-error { color: #f5658a; }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1761,8 +1823,8 @@ body {
 }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #cfcfcf; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #b8b8b8; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 select option { background: var(--card); color: var(--foreground); }
 
 /* BakaXL 同款背景：140deg 主蓝渐变 + 白色 radial 光斑（提取自官网 CSS） */
@@ -1802,7 +1864,7 @@ select option { background: var(--card); color: var(--foreground); }
 /* ========== Sidebar ========== */
 .sidebar {
   position: relative; height: 100%; flex-shrink: 0; overflow: hidden;
-  border-right: 1px solid rgba(255, 255, 255, 0.55);
+  border-right: 1px solid var(--glass-border-soft);
   background: var(--glass-sidebar);
   backdrop-filter: var(--glass-blur);
   display: flex; flex-direction: column;
@@ -1865,7 +1927,7 @@ select option { background: var(--card); color: var(--foreground); }
   display: flex; align-items: center; gap: 8px;
   height: 64px; flex-shrink: 0;
   padding: 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  border-bottom: 1px solid var(--glass-border-soft);
   background: var(--header-bg);
   backdrop-filter: var(--glass-blur);
 }
@@ -1917,7 +1979,7 @@ select option { background: var(--card); color: var(--foreground); }
 .stat-card {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 16px;
-  border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px; border: 1px solid var(--glass-border);
   background: var(--glass-card); color: var(--card-foreground);
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-card);
@@ -1946,7 +2008,7 @@ select option { background: var(--card); color: var(--foreground); }
 
 .panel {
   display: flex; flex-direction: column;
-  border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px; border: 1px solid var(--glass-border);
   background: var(--glass-card); color: var(--card-foreground);
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-card);
@@ -1977,8 +2039,8 @@ select option { background: var(--card); color: var(--foreground); }
 
 .resource-card {
   padding: 16px; border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid var(--glass-border-soft);
+  background: var(--inset-bg);
   backdrop-filter: blur(12px) saturate(1.3);
 }
 .resource-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
@@ -2027,7 +2089,7 @@ select option { background: var(--card); color: var(--foreground); }
 .log-search {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 12px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08); background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--inset-border); background: var(--inset-bg-strong);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .log-search:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(var(--theme-accent-color), 0.15); }
@@ -2108,8 +2170,8 @@ select option { background: var(--card); color: var(--foreground); }
 .chart-tooltip {
   position: fixed; pointer-events: none;
   transform: translate(-50%, -100%);
-  background: #ffffff; color: #2b2b2b;
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--tooltip-bg); color: var(--tooltip-fg);
+  border: 1px solid var(--inset-border);
   border-radius: 8px; padding: 8px 12px;
   font-size: 12px; white-space: nowrap; z-index: 9999;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -2128,8 +2190,8 @@ select option { background: var(--card); color: var(--foreground); }
 .cli-box {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--inset-border);
+  background: var(--inset-bg-strong);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 .cli-box:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px rgba(var(--theme-accent-color), 0.15); }
@@ -2142,7 +2204,7 @@ select option { background: var(--card); color: var(--foreground); }
 .cli-input::placeholder { color: var(--muted-foreground); }
 .cli-result {
   margin-top: 12px; padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--inset-bg); border: 1px solid var(--inset-border);
   border-radius: 8px; font-family: 'JetBrains Mono', monospace;
   font-size: 11px; color: var(--muted-foreground);
   white-space: pre-wrap; line-height: 1.6;
@@ -2162,7 +2224,7 @@ select option { background: var(--card); color: var(--foreground); }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-outline {
   padding: 8px 20px; border-radius: 20px;
-  border: 1px solid #c9c9c9; background: rgba(255, 255, 255, 0.6);
+  border: 1px solid var(--outline-border); background: var(--inset-bg-strong);
   color: var(--muted-foreground); font-size: 13px;
   cursor: pointer; transition: all 0.15s; white-space: nowrap;
 }
@@ -2172,8 +2234,8 @@ select option { background: var(--card); color: var(--foreground); }
 /* ========== Inputs ========== */
 .select-input, .select-sm {
   padding: 8px 12px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.55); color: var(--foreground);
+  border: 1px solid var(--inset-border);
+  background: var(--inset-bg-strong); color: var(--foreground);
   font-size: 13px; outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
   cursor: pointer;
@@ -2182,8 +2244,8 @@ select option { background: var(--card); color: var(--foreground); }
 .select-input { min-width: 220px; }
 .text-input {
   padding: 8px 12px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.55); color: var(--foreground);
+  border: 1px solid var(--inset-border);
+  background: var(--inset-bg-strong); color: var(--foreground);
   font-size: 13px; outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -2260,7 +2322,7 @@ select option { background: var(--card); color: var(--foreground); }
 .usage-summary-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
 .usage-summary-card {
   padding: 16px; border-radius: var(--radius);
-  border: 1px solid rgba(255, 255, 255, 0.6); background: var(--glass-card);
+  border: 1px solid var(--glass-border); background: var(--glass-card);
   backdrop-filter: var(--glass-blur);
   box-shadow: var(--shadow-card);
 }
@@ -2278,7 +2340,7 @@ select option { background: var(--card); color: var(--foreground); }
 .usage-tooltip {
   position: fixed; pointer-events: none;
   transform: translate(-50%, -100%);
-  background: #ffffff; color: #2b2b2b; border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--tooltip-bg); color: var(--tooltip-fg); border: 1px solid var(--inset-border);
   border-radius: 8px; padding: 8px 12px;
   font-size: 11px; white-space: nowrap; z-index: 9999;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12);
@@ -2294,12 +2356,12 @@ select option { background: var(--card); color: var(--foreground); }
 .settings-list { display: flex; flex-direction: column; gap: 8px; }
 .settings-item {
   padding: 10px 12px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--inset-border);
+  background: var(--inset-bg);
 }
 .settings-item-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .settings-user-id { font-size: 13px; font-weight: 600; }
-.settings-badge { font-size: 11px; color: var(--muted-foreground); background: rgba(0, 0, 0, 0.05); padding: 2px 8px; border-radius: 9999px; }
+.settings-badge { font-size: 11px; color: var(--muted-foreground); background: var(--badge-bg); padding: 2px 8px; border-radius: 9999px; }
 .settings-subs { display: flex; flex-direction: column; gap: 4px; }
 .settings-sub { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 6px; font-size: 12px; background: rgba(0, 0, 0, 0.03); }
 .settings-acc-id { margin-left: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted-foreground); }
@@ -2333,7 +2395,7 @@ select option { background: var(--card); color: var(--foreground); }
 .sys-section { display: flex; flex-direction: column; gap: 6px; }
 .sys-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .sys-btn {
-  padding: 7px 14px; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 7px 14px; border-radius: 8px; border: 1px solid var(--inset-border);
   background: transparent; color: var(--foreground); font-size: 12px; cursor: pointer;
   transition: all 0.15s;
 }
@@ -2345,7 +2407,7 @@ select option { background: var(--card); color: var(--foreground); }
 .sys-btn-danger:hover { background: rgba(233, 31, 75, 0.2); }
 .sys-textarea {
   width: 100%; padding: 10px 12px; border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.08); background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--inset-border); background: var(--inset-bg-strong);
   color: var(--foreground); font-size: 12px; font-family: 'JetBrains Mono', monospace;
   resize: vertical; outline: none; box-sizing: border-box;
 }
@@ -2383,7 +2445,7 @@ select option { background: var(--card); color: var(--foreground); }
   background: rgba(0,0,0,0.5);
 }
 .sys-confirm-box {
-  background: rgba(255, 255, 255, 0.88); border: 1px solid rgba(0, 0, 0, 0.08); backdrop-filter: var(--glass-blur);
+  background: var(--modal-bg); border: 1px solid var(--inset-border); backdrop-filter: var(--glass-blur);
   border-radius: 12px; padding: 24px; max-width: 360px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.14);
 }
@@ -2419,7 +2481,7 @@ select option { background: var(--card); color: var(--foreground); }
 .feature-item {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 12px; border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.55); backdrop-filter: blur(12px) saturate(1.3);
+  border: 1px solid var(--glass-border-soft); background: var(--inset-bg-strong); backdrop-filter: blur(12px) saturate(1.3);
   transition: background 0.15s;
 }
 .feature-item:hover { background: var(--accent); }
