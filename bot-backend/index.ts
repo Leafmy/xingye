@@ -2643,7 +2643,7 @@ app.post('/api/snowluma/auth/clear', (req, res) => {
   res.json({ success: true });
 });
 
-// QQ 进程手动注入/卸载
+// QQ 进程手动注入/卸载/刷新/探测登录
 app.post('/api/snowluma/processes/:pid/:action', async (req, res) => {
   const { pid, action } = req.params;
   if (!['load', 'unload', 'refresh'].includes(action)) {
@@ -2658,6 +2658,109 @@ app.post('/api/snowluma/processes/:pid/:action', async (req, res) => {
     res.json({ success: false, message: e.message });
   }
 });
+
+app.get('/api/snowluma/processes/:pid/probe-login', async (req, res) => {
+  try {
+    const resp = await snowlumaFetch(`/api/processes/${req.params.pid}/probe-login`);
+    const data = await resp.json().catch(() => ({}));
+    res.status(resp.status).json(data);
+  } catch (e: any) {
+    res.json({ info: null, message: e.message });
+  }
+});
+
+// 日志级别
+app.get('/api/snowluma/logs/level', async (req, res) => {
+  try {
+    const resp = await snowlumaFetch('/api/logs/level');
+    res.status(resp.status).json(await resp.json());
+  } catch (e: any) { res.status(502).json({ message: e.message }); }
+});
+app.post('/api/snowluma/logs/level', async (req, res) => {
+  try {
+    const resp = await snowlumaFetch('/api/logs/level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level: (req.body || {}).level })
+    });
+    res.status(resp.status).json(await resp.json());
+  } catch (e: any) { res.status(502).json({ message: e.message }); }
+});
+
+// OneBot 账号配置：读取 / 保存并热重载
+app.get('/api/snowluma/config/:uin', async (req, res) => {
+  if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).json({ message: 'invalid uin' }); return; }
+  try {
+    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`);
+    res.status(resp.status).json(await resp.json());
+  } catch (e: any) { res.status(502).json({ message: e.message }); }
+});
+app.post('/api/snowluma/config/:uin', async (req, res) => {
+  if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).json({ message: 'invalid uin' }); return; }
+  try {
+    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {})
+    });
+    res.status(resp.status).json(await resp.json());
+  } catch (e: any) { res.status(502).json({ message: e.message }); }
+});
+
+// SnowLuma 自更新检查
+app.get('/api/snowluma/update/check', async (req, res) => {
+  try {
+    const resp = await snowlumaFetch('/api/update/check');
+    res.status(resp.status).json(await resp.json());
+  } catch (e: any) { res.status(502).json({ message: e.message }); }
+});
+
+// 账号头像透传
+app.get('/api/snowluma/avatar/:uin', async (req, res) => {
+  if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).end(); return; }
+  try {
+    const resp = await snowlumaFetch(`/avatar/${req.params.uin}`);
+    const buf = Buffer.from(await resp.arrayBuffer());
+    res.status(resp.status).type(resp.headers.get('content-type') || 'image/png')
+      .set('Cache-Control', 'public, max-age=86400').send(buf);
+  } catch { res.status(502).end(); }
+});
+
+// 实时日志 SSE 透传（SnowLuma 支持 ?token= 查询认证）
+app.get('/api/snowluma/logs/stream', async (req, res) => {
+  if (!snowlumaToken) {
+    if (snowlumaPassword) {
+      try { snowlumaToken = await snowlumaLogin(snowlumaPassword); } catch { res.status(401).json({ success: false, message: 'SnowLuma 登录失败' }); return; }
+    } else { res.status(401).json({ success: false, message: '尚未配置 SnowLuma 密码' }); return; }
+  }
+  try {
+    let upstream = await fetch(`${SNOWLUMA_WEBUI}/api/logs/stream?token=${snowlumaToken}`);
+    if (upstream.status === 401 && snowlumaPassword) {
+      snowlumaToken = await snowlumaLogin(snowlumaPassword);
+      upstream = await fetch(`${SNOWLUMA_WEBUI}/api/logs/stream?token=${snowlumaToken}`);
+    }
+    if (!upstream.ok || !upstream.body) { res.status(upstream.status).json({ success: false, message: '上游日志流不可用' }); return; }
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    const reader = upstream.body.getReader();
+    let closed = false;
+    req.on('close', () => { closed = true; reader.cancel().catch(() => {}); });
+    while (!closed) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+      if (res.writableNeedDrain) await new Promise<void>(r => res.once('drain', () => r()));
+    }
+    res.end();
+  } catch (e: any) {
+    if (!res.headersSent) res.status(502).json({ success: false, message: e.message });
+    else try { res.end(); } catch {}
+  }
+});
+
 
 // 通用只读转发：system/qq-list/connections/processes/logs
 const SNOWLUMA_READONLY = ['/api/system', '/api/qq-list', '/api/connections', '/api/processes', '/api/logs'];

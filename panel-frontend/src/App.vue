@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import { tauriApi, isTauri } from './tauri-api'
-import { getServerConfig, saveServerConfig, serverFetch, createServerWebSocket, testServerConnection, isRemoteMode, getConnectionStatusText, type ServerConfig } from './server-config'
+import { getServerConfig, saveServerConfig, serverFetch, createServerWebSocket, testServerConnection, isRemoteMode, getConnectionStatusText, getApiBaseUrl, type ServerConfig } from './server-config'
 
 // 是否在Tauri环境中
 const isTauriEnv = ref(isTauri())
@@ -165,6 +165,75 @@ const snowConnections = ref<SnowConn[]>([])
 const snowAccounts = ref<{ uin: number; nickname: string }[]>([])
 const snowLogs = ref<{ timestamp: string; level: string; message: string }[]>([])
 const snowLoading = ref(false)
+const snowLogLevel = ref('info')
+const snowLogLevelOptions = ref<string[]>([])
+const snowStreamOn = ref(false)
+const snowConfigOpenUin = ref<number | null>(null)
+const snowConfigText = ref('')
+const snowConfigSaving = ref(false)
+const snowUpdateMsg = ref('')
+let snowEs: EventSource | null = null
+
+function snowEsUrl(): string {
+  return `${getApiBaseUrl()}/api/snowluma/logs/stream`
+}
+function startSnowStream() {
+  if (snowEs || snowAuthed.value !== true) return
+  snowStreamOn.value = true
+  snowEs = new EventSource(snowEsUrl())
+  snowEs.onmessage = (ev) => {
+    try {
+      const d = JSON.parse(ev.data)
+      if (d && (d.message || d.timestamp)) {
+        snowLogs.value.push({ timestamp: d.timestamp || '', level: d.level || 'info', message: d.message || '' })
+        if (snowLogs.value.length > 200) snowLogs.value.splice(0, snowLogs.value.length - 200)
+      }
+    } catch {}
+  }
+  snowEs.onerror = () => {
+    // 断开后由后端自动续期 token，前端延迟重连
+    snowEs?.close(); snowEs = null; snowStreamOn.value = false
+    if (snowAuthed.value === true) setTimeout(() => { if (activeTab.value === 'qqmgmt') startSnowStream() }, 3000)
+  }
+}
+function stopSnowStream() {
+  snowEs?.close(); snowEs = null; snowStreamOn.value = false
+}
+async function fetchSnowLogLevel() {
+  try { const res = await serverFetch('/api/snowluma/logs/level'); const d = await res.json(); snowLogLevel.value = d.level || 'info'; snowLogLevelOptions.value = d.levels || [] } catch {}
+}
+async function setSnowLogLevel(level: string) {
+  try { await serverFetch('/api/snowluma/logs/level', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ level }) }); snowLogLevel.value = level } catch {}
+}
+async function snowProbeLogin(pid: number) {
+  try { const res = await serverFetch(`/api/snowluma/processes/${pid}/probe-login`); const d = await res.json(); snowAuthMsg.value = d.info ? `探测: UIN ${d.info.uin ?? '未知'} · ${d.info.status ?? ''}` : (d.message || '探测完成') } catch (e: any) { snowAuthMsg.value = e.message }
+}
+async function snowRefreshProc(pid: number) {
+  try { await serverFetch(`/api/snowluma/processes/${pid}/refresh`, { method: 'POST' }); setTimeout(refreshSnowData, 600) } catch {}
+}
+async function snowOpenConfig(uin: number) {
+  if (snowConfigOpenUin.value === uin) { snowConfigOpenUin.value = null; return }
+  snowConfigOpenUin.value = uin
+  try { const res = await serverFetch(`/api/snowluma/config/${uin}`); const d = await res.json(); snowConfigText.value = JSON.stringify(d.config ?? d, null, 2) } catch (e: any) { snowConfigText.value = `// 读取失败: ${e.message}` }
+}
+async function snowSaveConfig(uin: number) {
+  snowConfigSaving.value = true
+  try {
+    let payload: unknown
+    try { payload = JSON.parse(snowConfigText.value) } catch { snowAuthMsg.value = '配置不是合法 JSON'; snowConfigSaving.value = false; return }
+    const res = await serverFetch(`/api/snowluma/config/${uin}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    const d = await res.json()
+    snowAuthMsg.value = d.message || (d.success ? '保存成功' : '保存失败')
+  } catch (e: any) { snowAuthMsg.value = e.message }
+  snowConfigSaving.value = false
+}
+async function snowCheckUpdate() {
+  snowUpdateMsg.value = '检查中...'
+  try { const res = await serverFetch('/api/snowluma/update/check'); const d = await res.json(); snowUpdateMsg.value = d.hasUpdate ? `发现新版本 ${d.latest?.version || d.latest}（当前 ${d.current}）` : `已是最新版本（${d.current}）` } catch (e: any) { snowUpdateMsg.value = e.message }
+}
+function snowAvatarUrl(uin: number): string {
+  return `${getApiBaseUrl()}/api/snowluma/avatar/${uin}`
+}
 
 async function snowAuthState() {
   try { const res = await serverFetch('/api/snowluma/auth/state'); const d = await res.json(); snowAuthed.value = Boolean(d.configured) } catch { snowAuthed.value = false }
@@ -206,7 +275,14 @@ async function snowProcAction(pid: number, action: 'load' | 'unload') {
   try { await serverFetch(`/api/snowluma/processes/${pid}/${action}`, { method: 'POST' }); setTimeout(refreshSnowData, 800) } catch {}
 }
 watch(activeTab, (tab) => {
-  if (tab === 'qqmgmt') { if (snowAuthed.value === null) snowAuthState().then(() => refreshSnowData()); else refreshSnowData() }
+  if (tab === 'qqmgmt') {
+    if (snowAuthed.value === null) snowAuthState().then(() => refreshSnowData()); else refreshSnowData()
+    fetchSnowLogLevel()
+    startSnowStream()
+  } else {
+    stopSnowStream()
+    snowConfigOpenUin.value = null
+  }
 })
 
 // ================= Date-range padding helper =================
@@ -1693,7 +1769,10 @@ onMounted(() => {
               <div class="panel anim-fade-up">
                 <div class="panel-header">
                   <div><div class="panel-title"><span class="panel-title-icon">🐧</span> QQ 进程与注入</div><div class="panel-desc">劫持 QQ 进程注入 SnowLuma（hookAutoLoad 开启时自动注入）</div></div>
-                  <div style="display:flex;gap:8px">
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <select class="select-input select-sm" style="min-width:110px;padding:6px 10px;font-size:12px" :value="snowLogLevel" @change="setSnowLogLevel(($event.target as HTMLSelectElement).value)" title="SnowLuma 日志级别">
+                      <option v-for="lv in snowLogLevelOptions" :key="lv" :value="lv">{{ lv }}</option>
+                    </select>
                     <button class="btn-outline" style="font-size:11px;padding:6px 14px" @click="refreshSnowData" :disabled="snowLoading">刷新</button>
                     <button class="btn-xs" @click="snowAuthClear">解除绑定</button>
                   </div>
@@ -1713,6 +1792,8 @@ onMounted(() => {
                         <span v-if="p.error" class="settings-badge" style="color:var(--destructive)">{{ p.error }}</span>
                         <button v-if="!p.injected" class="btn-primary" style="font-size:11px;padding:4px 14px" @click="snowProcAction(p.pid, 'load')">注入</button>
                         <button v-else class="btn-xs" @click="snowProcAction(p.pid, 'unload')">卸载</button>
+                        <button class="btn-xs" style="background:var(--inset-bg-strong);color:var(--muted-foreground)" @click="snowRefreshProc(p.pid)">刷新探测</button>
+                        <button class="btn-xs" style="background:var(--inset-bg-strong);color:var(--muted-foreground)" @click="snowProbeLogin(p.pid)">探测登录</button>
                       </div>
                     </div>
                   </div>
@@ -1722,14 +1803,31 @@ onMounted(() => {
               <div class="panel anim-fade-up" style="margin-top:16px">
                 <div class="panel-header">
                   <div><div class="panel-title"><span class="panel-title-icon">👤</span> 已登录账号</div><div class="panel-desc">{{ snowAccounts.length }} 个账号 · 连接 {{ snowConnections.length }} 条</div></div>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <span v-if="snowUpdateMsg" class="settings-badge">{{ snowUpdateMsg }}</span>
+                    <button class="btn-outline" style="font-size:11px;padding:6px 14px" @click="snowCheckUpdate">检查 SnowLuma 更新</button>
+                  </div>
                 </div>
                 <div class="panel-body settings-body">
                   <div v-if="snowAccounts.length === 0" class="empty-chart">暂无已登录账号</div>
                   <div v-else class="settings-list">
                     <div v-for="a in snowAccounts" :key="a.uin" class="settings-item">
                       <div class="settings-item-head">
-                        <span class="settings-user-id">{{ a.nickname || '未知昵称' }}<span class="settings-acc-id">{{ a.uin }}</span></span>
-                        <span class="settings-badge">在线</span>
+                        <span style="display:flex;align-items:center;gap:10px;min-width:0">
+                          <img :src="snowAvatarUrl(a.uin)" style="width:32px;height:32px;border-radius:8px;object-fit:cover" @error="($event.target as HTMLImageElement).style.visibility='hidden'" />
+                          <span class="settings-user-id">{{ a.nickname || '未知昵称' }}<span class="settings-acc-id">{{ a.uin }}</span></span>
+                        </span>
+                        <span style="display:flex;align-items:center;gap:8px">
+                          <span class="settings-badge">在线</span>
+                          <button class="btn-xs" style="background:var(--inset-bg-strong);color:var(--muted-foreground)" @click="snowOpenConfig(a.uin)">{{ snowConfigOpenUin === a.uin ? '收起配置' : '账号配置' }}</button>
+                        </span>
+                      </div>
+                      <div v-if="snowConfigOpenUin === a.uin" style="margin-top:8px">
+                        <textarea v-model="snowConfigText" class="sys-textarea" rows="10" spellcheck="false"></textarea>
+                        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+                          <button class="btn-primary" style="font-size:11px;padding:5px 16px" :disabled="snowConfigSaving" @click="snowSaveConfig(a.uin)">{{ snowConfigSaving ? '保存中...' : '保存并热重载' }}</button>
+                          <span v-if="snowAuthMsg" style="font-size:11px;color:var(--muted-foreground)">{{ snowAuthMsg }}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1738,10 +1836,11 @@ onMounted(() => {
 
               <div class="panel anim-fade-up" style="margin-top:16px">
                 <div class="panel-header">
-                  <div><div class="panel-title"><span class="panel-title-icon">📜</span> SnowLuma 日志</div><div class="panel-desc">最近 80 条 · 面板内直接查看</div></div>
+                  <div><div class="panel-title"><span class="panel-title-icon">📜</span> SnowLuma 日志</div><div class="panel-desc">{{ snowStreamOn ? '实时流 · 已连接' : '未连接（重新进入页面恢复）' }}</div></div>
+                  <span class="live-badge" v-if="snowStreamOn"><span class="live-dot"></span>实时</span>
                 </div>
                 <div class="panel-body settings-body" style="max-height:320px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.7">
-                  <div v-if="snowLogs.length === 0" class="empty-chart">暂无日志</div>
+                  <div v-if="snowLogs.length === 0" class="empty-chart">等待日志...</div>
                   <div v-for="(l, i) in snowLogs" :key="i" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                     <span style="color:var(--muted-foreground)">{{ l.timestamp }}</span>
                     <span :style="{ color: logColor(l.level) }"> {{ l.level.toUpperCase() }}</span>
