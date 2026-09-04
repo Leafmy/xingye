@@ -87,9 +87,7 @@ function prepareAppDir() {
   copyDirectory(path.join(ROOT_DIR, 'updater'), path.join(APP_DIR, 'updater'));
 
   copyFileIfExists(VERSION_PATH, path.join(APP_DIR, 'version.json'));
-  for (const file of ['start-all.bat', 'start-all.ps1', 'ecosystem.config.cjs']) {
-    copyFileIfExists(path.join(ROOT_DIR, file), path.join(APP_DIR, file));
-  }
+  copyFileIfExists(path.join(ROOT_DIR, 'ecosystem.config.cjs'), path.join(APP_DIR, 'ecosystem.config.cjs'));
 }
 
 function cleanReleaseAssets() {
@@ -123,6 +121,47 @@ function publish(versionInfo, repo) {
   if (!assets.length) fail('No release assets generated');
   const args = ['release', 'create', tag, '--repo', repo, '--title', tag, '--notes', `Xingye ${tag}`, '--latest', ...assets];
   run('gh', args);
+}
+
+function buildDesktopBundle() {
+  log('Building desktop NSIS bundle (tauri build)');
+  const env = { ...process.env };
+  const keyPath = path.join(process.env.USERPROFILE || '', '.tauri', 'xingye.key');
+  if (fs.existsSync(keyPath)) {
+    env.TAURI_SIGNING_PRIVATE_KEY_PATH = keyPath;
+    env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD = env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '';
+  } else {
+    log('Warning: updater signing key not found at ~/.tauri/xingye.key, updates will not be signed');
+  }
+  run(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', '@tauri-apps/cli', 'build']);
+  const bundleDir = path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
+  if (!fs.existsSync(bundleDir)) fail('NSIS bundle directory not found');
+  const setupFiles = fs.readdirSync(bundleDir).filter(f => f.endsWith('-setup.exe'));
+  if (!setupFiles.length) fail('No NSIS setup exe produced');
+  const setupName = setupFiles.sort().pop();
+  fs.copyFileSync(path.join(bundleDir, setupName), path.join(DIST_DIR, setupName));
+  log(`Desktop installer: ${setupName}`);
+  return setupName;
+}
+
+function generateLatestJson(versionInfo, repo, setupName) {
+  const sigPath = path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis', `${setupName}.sig`);
+  if (!fs.existsSync(sigPath)) fail(`Updater signature not found: ${sigPath}`);
+  const signature = fs.readFileSync(sigPath, 'utf8').trim();
+  const latest = {
+    version: versionInfo.version,
+    notes: `Xingye v${versionInfo.version}`,
+    pub_date: new Date().toISOString(),
+    platforms: {
+      'windows-x86_64': {
+        signature,
+        url: `https://github.com/${repo}/releases/download/v${versionInfo.release}/${encodeURIComponent(setupName)}`
+      }
+    }
+  };
+  const latestPath = path.join(DIST_DIR, 'latest.json');
+  fs.writeFileSync(latestPath, JSON.stringify(latest, null, 2));
+  log(`Updater manifest: latest.json`);
 }
 
 function printHelp() {
@@ -159,6 +198,15 @@ function main() {
   generator.save(manifest, RELEASE_MANIFEST_PATH);
   const checksumPath = generateChecksums();
   log(`Checksums: ${path.basename(checksumPath)}`);
+
+  // 桌面安装包：--full/--release 时构建 NSIS 并生成更新清单 latest.json
+  if (options.mode === '--full' || options.mode === '--release') {
+    if (!options.dryRun || options.mode === '--release') {
+      const setupName = buildDesktopBundle();
+      generateLatestJson(versionInfo, repo || versionInfo.githubRepo || 'Leafmy/xingye', setupName);
+      generateChecksums();
+    }
+  }
 
   if (options.mode === '--release' && !options.dryRun) publish(versionInfo, repo);
   log(`Output: ${DIST_DIR}`);
