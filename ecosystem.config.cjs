@@ -14,7 +14,7 @@ module.exports = {
     },
     {
       name: 'xingye-backend',
-      cwd: path.join(root, 'bot-backend'),
+      cwd: path.join(root, 'source', 'bot-backend'),
       script: path.join(root, 'bot-backend', 'pm2-start.cjs'),
       interpreter: 'node',
       autorestart: true,

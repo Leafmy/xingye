@@ -3,15 +3,15 @@
   "version": "0.6.0",
   "description": "星野 Xingye Bot - QQ 智能助手桌面应用",
   "scripts": {
-    "build:backend": "cd bot-backend && npm run build",
-    "build:frontend": "cd panel-frontend && npm run build",
+    "build:backend": "cd source/bot-backend && npm run build",
+    "build:frontend": "cd source/panel-frontend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "build:patch": "node scripts/build.js --patch",
-    "build:full": "node scripts/build.js --full",
-    "build:release": "node scripts/build.js --release",
-    "release": "node scripts/release.js",
-    "release:dry-run": "node scripts/release.js --dry-run",
-    "update:check": "node updater/server-update.js check",
-    "update:apply": "node updater/server-update.js apply"
+    "build:patch": "node source/scripts/build.js --patch",
+    "build:full": "node source/scripts/build.js --full",
+    "build:release": "node source/scripts/build.js --release",
+    "release": "node source/scripts/release.js",
+    "release:dry-run": "node source/scripts/release.js --dry-run",
+    "update:check": "node source/updater/server-update.js check",
+    "update:apply": "node source/updater/server-update.js apply"
   }
 }

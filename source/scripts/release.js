@@ -4,7 +4,7 @@ const readline = require('readline/promises');
 const { stdin, stdout } = require('process');
 const { spawnSync } = require('child_process');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = path.resolve(__dirname, '..', '..')  // 项目根;
 const VERSION_PATH = path.join(ROOT_DIR, 'version.json');
 const BUILD_SCRIPT = path.join(__dirname, 'build.js');
 

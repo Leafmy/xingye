@@ -5,10 +5,11 @@ const { spawnSync } = require('child_process');
 const ManifestGenerator = require('../updater/manifest-generator');
 const PatchGenerator = require('../updater/patch-generator');
 
-const ROOT_DIR = path.resolve(__dirname, '..');
-const APP_DIR = path.join(ROOT_DIR, 'app');
-const DIST_DIR = path.join(ROOT_DIR, 'release');
-const VERSION_PATH = path.join(ROOT_DIR, 'version.json');
+const SOURCE_DIR = path.resolve(__dirname, '..');            // source/
+const PROJECT_ROOT = path.resolve(SOURCE_DIR, '..');         // 项目根（release 布局）
+const APP_DIR = path.join(PROJECT_ROOT, 'app');
+const DIST_DIR = path.join(PROJECT_ROOT, 'release');
+const VERSION_PATH = path.join(PROJECT_ROOT, 'version.json');
 const RELEASE_MANIFEST_PATH = path.join(DIST_DIR, 'manifest.json');
 
 function log(message) {
@@ -35,7 +36,7 @@ function parseArgs(args) {
 function run(command, args) {
   log(`Running ${command} ${args.join(' ')}`);
   const result = spawnSync(command, args, {
-    cwd: ROOT_DIR,
+    cwd: PROJECT_ROOT,
     stdio: 'inherit',
     windowsHide: false,
     shell: process.platform === 'win32'
@@ -76,18 +77,17 @@ function prepareAppDir() {
   fs.rmSync(APP_DIR, { recursive: true, force: true });
   fs.mkdirSync(APP_DIR, { recursive: true });
 
-  copyDirectory(path.join(ROOT_DIR, 'bot-backend'), path.join(APP_DIR, 'bot-backend'), new Set(['node_modules', 'data', '.env', 'dist']));
-  copyDirectory(path.join(ROOT_DIR, 'bot-backend', 'dist'), path.join(APP_DIR, 'bot-backend', 'dist'));
-  copyDirectory(path.join(ROOT_DIR, 'panel-frontend', 'dist'), path.join(APP_DIR, 'panel-frontend', 'dist'));
-  copyFileIfExists(path.join(ROOT_DIR, 'panel-frontend', 'package.json'), path.join(APP_DIR, 'panel-frontend', 'package.json'));
-  copyFileIfExists(path.join(ROOT_DIR, 'panel-frontend', 'package-lock.json'), path.join(APP_DIR, 'panel-frontend', 'package-lock.json'));
+  copyDirectory(path.join(SOURCE_DIR, 'bot-backend'), path.join(APP_DIR, 'bot-backend'), new Set(['node_modules', 'data', '.env', 'dist']));
+  copyDirectory(path.join(SOURCE_DIR, 'bot-backend', 'dist'), path.join(APP_DIR, 'bot-backend', 'dist'));
+  copyDirectory(path.join(SOURCE_DIR, 'panel-frontend', 'dist'), path.join(APP_DIR, 'panel-frontend', 'dist'));
+  copyFileIfExists(path.join(SOURCE_DIR, 'panel-frontend', 'package.json'), path.join(APP_DIR, 'panel-frontend', 'package.json'));
+  copyFileIfExists(path.join(SOURCE_DIR, 'panel-frontend', 'package-lock.json'), path.join(APP_DIR, 'panel-frontend', 'package-lock.json'));
 
-  copyDirectory(path.join(ROOT_DIR, 'SnowLuma'), path.join(APP_DIR, 'SnowLuma'), new Set(['node_modules', 'data', 'logs', 'config']));
-  copyDirectory(path.join(ROOT_DIR, 'BBDown'), path.join(APP_DIR, 'BBDown'));
-  copyDirectory(path.join(ROOT_DIR, 'updater'), path.join(APP_DIR, 'updater'));
+  copyDirectory(path.join(PROJECT_ROOT, 'SnowLuma'), path.join(APP_DIR, 'SnowLuma'), new Set(['node_modules', 'data', 'logs', 'config']));
+  copyDirectory(path.join(PROJECT_ROOT, 'BBDown'), path.join(APP_DIR, 'BBDown'));
+  copyDirectory(path.join(SOURCE_DIR, 'updater'), path.join(APP_DIR, 'updater'));
 
   copyFileIfExists(VERSION_PATH, path.join(APP_DIR, 'version.json'));
-  copyFileIfExists(path.join(ROOT_DIR, 'ecosystem.config.cjs'), path.join(APP_DIR, 'ecosystem.config.cjs'));
 }
 
 function cleanReleaseAssets() {
@@ -134,7 +134,7 @@ function buildDesktopBundle() {
     log('Warning: updater signing key not found at ~/.tauri/xingye.key, updates will not be signed');
   }
   run(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['--yes', '@tauri-apps/cli', 'build']);
-  const bundleDir = path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
+  const bundleDir = path.join(SOURCE_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis');
   if (!fs.existsSync(bundleDir)) fail('NSIS bundle directory not found');
   const setupFiles = fs.readdirSync(bundleDir).filter(f => f.endsWith('-setup.exe'));
   if (!setupFiles.length) fail('No NSIS setup exe produced');
@@ -142,7 +142,7 @@ function buildDesktopBundle() {
   fs.copyFileSync(path.join(bundleDir, setupName), path.join(DIST_DIR, setupName));
   // 同步 exe 到项目根目录（桌面 App 主入口）
   try {
-    fs.copyFileSync(path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'xingye.exe'), path.join(ROOT_DIR, 'xingye.exe'));
+    fs.copyFileSync(path.join(SOURCE_DIR, 'src-tauri', 'target', 'release', 'xingye.exe'), path.join(PROJECT_ROOT, 'xingye.exe'));
     log('Root binary updated: xingye.exe');
   } catch (e) {
     log(`Warning: failed to copy root xingye.exe: ${e.message} (is it running?)`);
@@ -152,7 +152,7 @@ function buildDesktopBundle() {
 }
 
 function generateLatestJson(versionInfo, repo, setupName) {
-  const sigPath = path.join(ROOT_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis', `${setupName}.sig`);
+  const sigPath = path.join(SOURCE_DIR, 'src-tauri', 'target', 'release', 'bundle', 'nsis', `${setupName}.sig`);
   if (!fs.existsSync(sigPath)) fail(`Updater signature not found: ${sigPath}`);
   const signature = fs.readFileSync(sigPath, 'utf8').trim();
   const latest = {

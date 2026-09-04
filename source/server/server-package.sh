@@ -1,6 +1,8 @@
 #!/bin/bash
 # 星野 Xingye - 打包服务器部署文件
 # 运行此脚本生成可上传到服务器的部署包
+PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$PROJECT_ROOT"
 
 set -e
 
@@ -19,7 +21,7 @@ rm -rf ${PACKAGE_DIR} ${PACKAGE_FILE}
 mkdir -p ${PACKAGE_DIR}
 
 echo "[1/5] 复制后端文件..."
-cp -r bot-backend ${PACKAGE_DIR}/
+cp -r source/bot-backend ${PACKAGE_DIR}/
 # 清理不需要的文件
 rm -rf ${PACKAGE_DIR}/bot-backend/node_modules
 rm -rf ${PACKAGE_DIR}/bot-backend/dist
@@ -33,15 +35,16 @@ rm -rf ${PACKAGE_DIR}/SnowLuma/logs
 
 echo "[3/5] 复制前端文件..."
 mkdir -p ${PACKAGE_DIR}/panel-frontend
-cp -r panel-frontend/dist ${PACKAGE_DIR}/panel-frontend/
-cp panel-frontend/package.json ${PACKAGE_DIR}/panel-frontend/
+cp -r source/panel-frontend/dist ${PACKAGE_DIR}/panel-frontend/
+cp source/panel-frontend/package.json ${PACKAGE_DIR}/panel-frontend/
 
 echo "[4/5] 复制配置文件..."
-cp ecosystem.config.cjs ${PACKAGE_DIR}/
+# 服务器包内 bot-backend 在包根，转换 ecosystem 的本机路径
+sed "s|'source', 'bot-backend'|'bot-backend'|" ecosystem.config.cjs > ${PACKAGE_DIR}/ecosystem.config.cjs
 cp version.json ${PACKAGE_DIR}/
-cp -r updater ${PACKAGE_DIR}/
-cp -r scripts ${PACKAGE_DIR}/
-cp server-deploy.sh ${PACKAGE_DIR}/
+cp -r source/updater ${PACKAGE_DIR}/
+cp -r source/scripts ${PACKAGE_DIR}/
+cp source/server/server-deploy.sh ${PACKAGE_DIR}/
 chmod +x ${PACKAGE_DIR}/server-deploy.sh
 
 echo "[5/5] 创建环境配置模板..."

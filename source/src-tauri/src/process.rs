@@ -150,7 +150,7 @@ pub async fn start_backend(
 
     // 根目录布局下 app/bot-backend 是打包模板（无 node_modules），
     // 回退解析根目录源码 bot-backend/node_modules
-    let src_modules = resource_dir.join("bot-backend").join("node_modules");
+    let src_modules = resource_dir.join("source").join("bot-backend").join("node_modules");
     if src_modules.exists() {
         cmd.env("NODE_PATH", plain_path(&src_modules));
     }

@@ -27,10 +27,6 @@
     ],
     "security": {
       "csp": null
-    },
-    "trayIcon": {
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": true
     }
   },
   "bundle": {
@@ -45,9 +41,9 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../app/**/*",
-      "../SnowLuma/**/*",
-      "../BBDown/**/*"
+      "../../app/**/*",
+      "../../SnowLuma/**/*",
+      "../../BBDown/**/*"
     ]
   },
   "plugins": {

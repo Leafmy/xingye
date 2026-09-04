@@ -34,13 +34,13 @@ release/
 *.suo
 
 # Rust/Tauri build artifacts (several GB)
-src-tauri/target/
-src-tauri/gen/
+source/src-tauri/target/
+source/src-tauri/gen/
 
 # Downloadable datasets (init-miao-data / init-liangshi-data fetch these)
-bot-backend/genshin-guide/miao-data/
-bot-backend/genshin-guide/liangshi-data/
-bot-backend/.miao-temp/
+source/bot-backend/genshin-guide/miao-data/
+source/bot-backend/genshin-guide/liangshi-data/
+source/bot-backend/.miao-temp/
 
 # Bundled native modules and external binaries
 SnowLuma/native/

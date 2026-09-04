@@ -7,6 +7,7 @@ echo ========================================
 echo.
 
 echo Starting Tauri dev server...
+cd /d "%~dp0source"
 call npx tauri dev
 if errorlevel 1 (
     echo Tauri dev failed!
