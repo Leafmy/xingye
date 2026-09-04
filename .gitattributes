@@ -1,0 +1,7 @@
+# Keep large runtime assets out of normal Git objects.
+bot-backend/genshin-guide/miao-data/** filter=lfs diff=lfs merge=lfs -text
+bot-backend/genshin-guide/liangshi-data/** filter=lfs diff=lfs merge=lfs -text
+BBDown/*.exe filter=lfs diff=lfs merge=lfs -text
+SnowLuma/native/** filter=lfs diff=lfs merge=lfs -text
+*.node filter=lfs diff=lfs merge=lfs -text
+*.dll filter=lfs diff=lfs merge=lfs -text

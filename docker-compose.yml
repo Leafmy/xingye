@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  xingye:
+    build: .
+    container_name: xingye-bot
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # 后端API
+      - "5174:5174"   # 管理面板
+      - "3001:3001"   # SnowLuma WebSocket
+    environment:
+      - MIMO_API_KEY=${MIMO_API_KEY:-}
+      - STEAM_API_KEY=${STEAM_API_KEY:-}
+      - STEAM_PROXY_URL=${STEAM_PROXY_URL:-http://127.0.0.1:7890}
+      - DOUBAO_API_KEY=${DOUBAO_API_KEY:-}
+      - DOUBAO_DRAW_MODEL=${DOUBAO_DRAW_MODEL:-ep-20260505205937-zj4t6}
+      - XINGYE_GITHUB_REPO=${XINGYE_GITHUB_REPO:-Leafmy/xingye}
+      - GAOKAO_BRIDGE_ENDPOINT=${GAOKAO_BRIDGE_ENDPOINT:-http://127.0.0.1:8766}
+    volumes:
+      - xingye-data:/app/data
+      - xingye-logs:/app/logs
+      - ./bot-backend/.env:/app/bot-backend/.env:ro
+    networks:
+      - xingye-network
+
+networks:
+  xingye-network:
+    driver: bridge
+
+volumes:
+  xingye-data:
+  xingye-logs:
