@@ -20,11 +20,16 @@ function assertSafeRelative(filePath) {
 }
 
 function compress(sourceDir, destination) {
-  const command = `Compress-Archive -Path (Join-Path -Path ${psQuote(sourceDir)} -ChildPath '*') -DestinationPath ${psQuote(destination)} -Force`;
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], {
-    encoding: 'utf8',
-    windowsHide: true
-  });
+  // 优先使用 Windows 自带的 bsdtar 生成标准 zip；没有 tar 时再回退到 PowerShell Archive。
+  const result = process.platform === 'win32'
+    ? spawnSync('tar.exe', ['-a', '-c', '-f', destination, '-C', sourceDir, '.'], {
+        encoding: 'utf8',
+        windowsHide: true
+      })
+    : spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Compress-Archive -Path (Join-Path -Path ${psQuote(sourceDir)} -ChildPath '*') -DestinationPath ${psQuote(destination)} -Force`], {
+        encoding: 'utf8',
+        windowsHide: true
+      });
   if (result.status !== 0) {
     throw new Error((result.stderr || result.stdout || 'Compress-Archive failed').trim());
   }

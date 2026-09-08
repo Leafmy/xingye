@@ -7,8 +7,8 @@ const PatchGenerator = require('../updater/patch-generator');
 
 const SOURCE_DIR = path.resolve(__dirname, '..');            // source/
 const PROJECT_ROOT = path.resolve(SOURCE_DIR, '..');         // 项目根（release 布局）
-const APP_DIR = path.join(PROJECT_ROOT, 'app');
-const DIST_DIR = path.join(PROJECT_ROOT, 'release');
+const APP_DIR = path.join(PROJECT_ROOT, 'out', 'app');
+const DIST_DIR = path.join(PROJECT_ROOT, 'out', 'release');
 const VERSION_PATH = path.join(PROJECT_ROOT, 'version.json');
 const RELEASE_MANIFEST_PATH = path.join(DIST_DIR, 'manifest.json');
 
@@ -83,8 +83,10 @@ function prepareAppDir() {
   copyFileIfExists(path.join(SOURCE_DIR, 'panel-frontend', 'package.json'), path.join(APP_DIR, 'panel-frontend', 'package.json'));
   copyFileIfExists(path.join(SOURCE_DIR, 'panel-frontend', 'package-lock.json'), path.join(APP_DIR, 'panel-frontend', 'package-lock.json'));
 
-  copyDirectory(path.join(PROJECT_ROOT, 'SnowLuma'), path.join(APP_DIR, 'SnowLuma'), new Set(['node_modules', 'data', 'logs', 'config']));
-  copyDirectory(path.join(PROJECT_ROOT, 'BBDown'), path.join(APP_DIR, 'BBDown'));
+  // 桌面端自包含 Node 运行时：进程壳不依赖系统 PATH 中的 node（GUI 环境通常没有）
+  copyDirectory(path.join(PROJECT_ROOT, 'vendor', 'node'), path.join(APP_DIR, 'node'));
+  copyDirectory(path.join(PROJECT_ROOT, 'vendor', 'SnowLuma'), path.join(APP_DIR, 'SnowLuma'), new Set(['node_modules', 'data', 'logs', 'config']));
+  copyDirectory(path.join(PROJECT_ROOT, 'vendor', 'BBDown'), path.join(APP_DIR, 'BBDown'));
   copyDirectory(path.join(SOURCE_DIR, 'updater'), path.join(APP_DIR, 'updater'));
 
   copyFileIfExists(VERSION_PATH, path.join(APP_DIR, 'version.json'));

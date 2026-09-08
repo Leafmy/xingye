@@ -47,6 +47,7 @@ source/bot-backend/.miao-temp/
 # Bundled native modules and external binaries
 SnowLuma/native/
 BBDown/*.exe
+/node/
 
 # Root runtime binary (copied from src-tauri/target/release after build)
 /xingye.exe

@@ -25,6 +25,8 @@ export interface UpdateProgress {
 }
 
 export interface AppState {
+  main_pid: number | null
+  module_enabled: boolean
   backend_pid: number | null
   snowluma_pid: number | null
   backend_running: boolean
@@ -85,6 +87,34 @@ export const tauriApi = {
   },
 
   /**
+   * 获取星野模块主开关状态
+   */
+  async getModuleState(): Promise<AppState> {
+    return await invoke<AppState>('get_module_state')
+  },
+
+  /**
+   * 设置星野模块主开关（独立于 App 生命周期启动/停止）
+   */
+  async setModuleEnabled(enabled: boolean): Promise<AppState> {
+    return await invoke<AppState>('set_module_enabled', { enabled })
+  },
+
+  /**
+   * 使用系统默认浏览器打开 URL
+   */
+  async openExternal(url: string): Promise<void> {
+    return await invoke<void>('open_external', { url })
+  },
+
+  /**
+   * 打开独立的 App 设置窗口（第二窗口）
+   */
+  async openAppSettings(): Promise<void> {
+    return await invoke<void>('open_app_settings')
+  },
+
+  /**
    * 监听更新进度
    */
   onUpdateProgress(callback: (data: UpdateProgress) => void): () => void {
@@ -111,6 +141,20 @@ export const tauriApi = {
   /**
    * 窗口控制
    */
+  
+  /**
+   * 获取应用关闭行为设置
+   */
+  async getCloseBehavior(): Promise<string> {
+    return await invoke<string>('get_close_behavior')
+  },
+
+  /**
+   * 设置应用关闭行为
+   */
+  async setCloseBehavior(behavior: string): Promise<void> {
+    return await invoke<void>('set_close_behavior', { behavior })
+  },
   window: {
     async minimize() {
       await getCurrentWindow().minimize()
@@ -124,8 +168,14 @@ export const tauriApi = {
         await window.maximize()
       }
     },
-    async close() {
+    async hide() {
       await getCurrentWindow().hide()
+    },
+    async close() {
+      await getCurrentWindow().close()
+    },
+    async closeApp() {
+      await invoke<void>('quit_app')
     },
     async toggleFullscreen() {
       const window = getCurrentWindow()
@@ -141,3 +191,5 @@ export const tauriApi = {
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
+
+

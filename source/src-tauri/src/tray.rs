@@ -12,6 +12,16 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 创建托盘菜单
     let show_item = MenuItem::with_id(app_handle, "show", "显示窗口", true, None::<&str>)?;
     let restart_item = MenuItem::with_id(app_handle, "restart", "重启服务", true, None::<&str>)?;
+    let module_enabled = crate::process::load_module_enabled(app_handle);
+    let module_item = CheckMenuItem::with_id(
+        app_handle,
+        "module",
+        "星野模块（主开关）",
+        true,
+        module_enabled,
+        None::<&str>,
+    )?;
+    let module_item_event = module_item.clone();
     let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
     let autostart_item = CheckMenuItem::with_id(
         app_handle,
@@ -25,7 +35,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(
         app_handle,
-        &[&show_item, &restart_item, &autostart_item, &quit_item],
+        &[&show_item, &restart_item, &module_item, &autostart_item, &quit_item],
     )?;
 
     // 创建托盘图标
@@ -43,6 +53,10 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             "restart" => {
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
+                    if !crate::process::load_module_enabled(&app_handle) {
+                        println!("[Xingye] Tray restart skipped: Xingye module master switch is OFF");
+                        return;
+                    }
                     let resource_dir = app_handle
                         .path()
                         .resource_dir()
@@ -57,6 +71,32 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.eval("location.reload()");
+                    }
+                });
+            }
+            "module" => {
+                let app_handle = app.clone();
+                let module_item = module_item_event.clone();
+                tauri::async_runtime::spawn(async move {
+                    let enabled = crate::process::load_module_enabled(&app_handle);
+                    let result = if enabled {
+                        crate::process::stop_module(&app_handle).await
+                    } else {
+                        crate::process::start_module(&app_handle).await
+                    };
+                    match result {
+                        Ok(()) => {
+                            let new_enabled = !enabled;
+                            let _ = module_item.set_checked(new_enabled);
+                            println!("[Xingye] Tray toggled Xingye module -> {}", new_enabled);
+                            if new_enabled {
+                                let window = app_handle.get_webview_window("main");
+                                if let Some(win) = window {
+                                    let _ = win.eval("setTimeout(() => location.reload(), 1200)");
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("[Xingye] Tray module toggle failed: {}", e),
                     }
                 });
             }

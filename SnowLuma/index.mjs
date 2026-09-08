@@ -1226,74 +1226,8 @@ var QqHookClient = class QqHookClient extends EventEmitter {
 //#endregion
 //#region ../bridge/src/qq-port-probe.ts
 var execAsync = promisify(exec);
-var PORT_RANGE_START = 9210;
-var PORT_RANGE_END = 9219;
-var PROBE_TIMEOUT_MS = 1e3;
 var CONNECTION_TIMEOUT_MS = 500;
 var LOGGED_OUT_PROCESS_COUNT_MAX = 6;
-function decodeJwt(token) {
-	try {
-		const parts = token.split(".");
-		if (parts.length !== 3) return null;
-		const payload = Buffer.from(parts[1], "base64").toString("utf8");
-		return JSON.parse(payload);
-	} catch {
-		return null;
-	}
-}
-async function probePort(port) {
-	return new Promise((resolve) => {
-		const client = new net.Socket();
-		const payload = `POST /tencent HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: close\r\nContent-Length: 10\r\n\r\ntencent://`;
-		let responseData = "";
-		let timer;
-		const cleanup = () => {
-			clearTimeout(timer);
-			client.removeAllListeners();
-			client.destroy();
-		};
-		timer = setTimeout(() => {
-			cleanup();
-			resolve(null);
-		}, PROBE_TIMEOUT_MS);
-		client.setTimeout(CONNECTION_TIMEOUT_MS);
-		client.connect(port, "127.0.0.1", () => {
-			client.write(payload);
-		});
-		client.on("data", (data) => {
-			responseData += data.toString();
-		});
-		client.on("close", () => {
-			cleanup();
-			const jwtMatch = responseData.match(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/);
-			if (!jwtMatch) {
-				resolve(null);
-				return;
-			}
-			const decoded = decodeJwt(jwtMatch[0]);
-			if (!decoded || decoded.errCode !== 0) {
-				resolve(null);
-				return;
-			}
-			const uin = decoded.uin || decoded.data?.uin || "";
-			resolve({
-				port,
-				uin,
-				uid: decoded.uid,
-				nickName: decoded.nickName,
-				loggedIn: uin.length > 0
-			});
-		});
-		client.on("error", () => {
-			cleanup();
-			resolve(null);
-		});
-		client.on("timeout", () => {
-			cleanup();
-			resolve(null);
-		});
-	});
-}
 async function fetchPtlogin(port) {
 	return new Promise((resolve) => {
 		const url = `https://127.0.0.1:${port}/pt_get_uins?callback=ptui_getuins_CB&pt_local_tk=0`;
@@ -1410,11 +1344,9 @@ async function probeQqLoginInfo(pid) {
 		uin: "",
 		loggedIn: false
 	};
-	const deepLinkPorts = ports.filter((p) => p >= PORT_RANGE_START && p <= PORT_RANGE_END);
-	for (const port of deepLinkPorts) {
-		const info = await probePort(port);
-		if (info) return info;
-	}
+	// 安全修复：不再向 QQ 的 9210-9219 深链端口发送原始 tencent:// 握手。
+	// 该握手会被 QQ 当作不支持的本地协议解析并弹出“当前QQ暂不支持该内容”。
+	// 账号探测只走 PtLogin（4301/4303/4305/4307/4309），避免探测过程扰动 QQ。
 	return null;
 }
 //#endregion
@@ -1430,10 +1362,12 @@ async function probeQqLoginInfo(pid) {
 *   - Retry stuck-in-connecting sessions on every watcher tick (so a
 *     failed connect eventually recovers without a manual refresh).
 *
-* The native injector, native pipe-client, and native process/pipe
-* listings are all swappable dependencies so tests can run without a
-* real QQ.exe or a native addon.
-*/
+ * The native injector, native pipe-client, and native process/pipe
+ * listings are all swappable dependencies so tests can run without a
+ * real QQ.exe or a native addon.
+ */
+var AUTO_LOAD_PROBE_RETRY_MS = 3e3;
+var AUTO_LOAD_NON_TARGET_RETRY_MS = 15e3;
 var HookManager = class {
 	bridgeManager;
 	onPacket;
@@ -1443,6 +1377,8 @@ var HookManager = class {
 	ownsPipeWatcher;
 	listProcessesNative;
 	autoLoadOnDiscovery;
+	autoLoadTargetUin = "";
+	autoLoadGateState = /* @__PURE__ */ new Map();
 	log;
 	sessions = /* @__PURE__ */ new Map();
 	startPromise;
@@ -1461,6 +1397,7 @@ var HookManager = class {
 		this.makeClient = deps.makeClient ?? ((pid) => new QqHookClient(pid));
 		this.listProcessesNative = deps.listProcesses ?? listHookProcesses;
 		this.autoLoadOnDiscovery = deps.autoLoadOnDiscovery ?? false;
+		this.autoLoadTargetUin = deps.autoLoadTargetUin ? String(deps.autoLoadTargetUin) : "";
 		if (deps.pipeWatcher) {
 			this.pipeWatcher = deps.pipeWatcher;
 			this.ownsPipeWatcher = false;
@@ -1496,6 +1433,13 @@ var HookManager = class {
 	async loadProcess(pid) {
 		this.assertValidPid(pid);
 		await this.startPromise;
+		if (this.autoLoadTargetUin) {
+			const info = await this.probeProcessLoginInfo(pid);
+			const current = info && info.loggedIn && info.uin ? `UIN=${info.uin}` : "未登录或无法确认";
+			if (!info || !info.loggedIn || !info.uin || String(info.uin) !== String(this.autoLoadTargetUin)) {
+				throw new Error(`仅允许加载目标账号 UIN=${this.autoLoadTargetUin} 的登录态进程；PID=${pid} 当前为 ${current}`);
+			}
+		}
 		const info = await this.ensureSession(pid).load();
 		this.pipeWatcher.wake();
 		return info;
@@ -1508,6 +1452,14 @@ var HookManager = class {
 	async refreshProcess(pid) {
 		this.assertValidPid(pid);
 		await this.startPromise;
+		const existing = this.sessions.get(pid);
+		if (this.autoLoadTargetUin && (!existing || (!existing.injected && !existing.connected))) {
+			const info = await this.probeProcessLoginInfo(pid);
+			const current = info && info.loggedIn && info.uin ? `UIN=${info.uin}` : "未登录或无法确认";
+			if (!info || !info.loggedIn || !info.uin || String(info.uin) !== String(this.autoLoadTargetUin)) {
+				throw new Error(`仅允许刷新目标账号 UIN=${this.autoLoadTargetUin} 的登录态进程；PID=${pid} 当前为 ${current}`);
+			}
+		}
 		return this.ensureSession(pid).refresh();
 	}
 	async probeProcessLoginInfo(pid) {
@@ -1519,6 +1471,7 @@ var HookManager = class {
 		this.disposed = true;
 		for (const session of this.sessions.values()) session.dispose();
 		this.sessions.clear();
+		this.autoLoadGateState.clear();
 		if (this.ownsPipeWatcher) this.pipeWatcher.dispose();
 	}
 	bindWatcher() {
@@ -1526,19 +1479,25 @@ var HookManager = class {
 			if (this.disposed) return;
 			const session = this.ensureSession(info.pid);
 			session.attachProcessInfo(info);
-			if (this.autoLoadOnDiscovery && shouldAutoLoadPid(info.pid, this.log)) session.load().catch((err) => {
-				this.log.warn("auto-load failed: PID=%d err=%s", info.pid, errMsg(err));
-			});
+			if (this.autoLoadOnDiscovery) {
+				if (this.autoLoadTargetUin) this.scheduleAutoLoadCheck(session);
+				else if (shouldAutoLoadPid(info.pid, this.log)) session.load().catch((err) => {
+					this.log.warn("auto-load failed: PID=%d err=%s", info.pid, errMsg(err));
+				});
+			}
 		});
 		this.pipeWatcher.on("process-gone", (pid) => {
 			if (this.disposed) return;
+			this.autoLoadGateState.delete(pid);
 			const session = this.sessions.get(pid);
 			if (session) session.notifyProcessGone();
 		});
 		this.pipeWatcher.on("pipe-up", (pid) => {
 			if (this.disposed) return;
 			const session = this.sessions.get(pid);
-			if (session) session.onPipeUp();
+			if (!session) return;
+			if (session.injected || session.connected || !this.autoLoadTargetUin) session.onPipeUp();
+			else this.scheduleAutoLoadCheck(session);
 		});
 		this.pipeWatcher.on("pipe-down", (pid) => {
 			if (this.disposed) return;
@@ -1547,8 +1506,51 @@ var HookManager = class {
 		});
 		this.pipeWatcher.on("tick", () => {
 			if (this.disposed) return;
-			for (const session of this.sessions.values()) if ((session.status === "connecting" || session.status === "disconnected") && this.pipeWatcher.isPipeLive(session.pid)) session.onPipeUp();
+			for (const session of this.sessions.values()) {
+				if ((session.status === "connecting" || session.status === "disconnected") && this.pipeWatcher.isPipeLive(session.pid)) {
+					if (session.injected || !this.autoLoadTargetUin) session.onPipeUp();
+					else this.scheduleAutoLoadCheck(session);
+				} else if (this.autoLoadTargetUin && !session.injected && !session.connected && (this.autoLoadOnDiscovery || this.pipeWatcher.isPipeLive(session.pid))) this.scheduleAutoLoadCheck(session);
+			}
 		});
+	}
+	scheduleAutoLoadCheck(session) {
+		if (this.disposed || !this.autoLoadTargetUin || !session || session.injected || session.connected) return;
+		const now = Date.now();
+		let state = this.autoLoadGateState.get(session.pid);
+		if (!state) {
+			state = { nextCheckAt: 0, warnedUin: "" };
+			this.autoLoadGateState.set(session.pid, state);
+		}
+		if (now <= state.nextCheckAt) return;
+		state.nextCheckAt = now + AUTO_LOAD_PROBE_RETRY_MS;
+		this.runAutoLoadCheck(session, state).catch((err) => {
+			this.log.warn("auto-load gate check failed: PID=%d err=%s", session.pid, errMsg(err));
+			state.nextCheckAt = Date.now() + AUTO_LOAD_PROBE_RETRY_MS;
+		});
+	}
+	async runAutoLoadCheck(session, state) {
+		if (this.disposed || !this.autoLoadTargetUin || session.injected || session.connected) return;
+		const info = await this.probeProcessLoginInfo(session.pid);
+		if (!info) {
+			state.nextCheckAt = Date.now() + AUTO_LOAD_PROBE_RETRY_MS;
+			return;
+		}
+		const uin = String(info.uin || "").trim();
+		if (!info.loggedIn || !/^\d{5,12}$/.test(uin)) {
+			state.nextCheckAt = Date.now() + AUTO_LOAD_PROBE_RETRY_MS;
+			return;
+		}
+		if (uin !== String(this.autoLoadTargetUin)) {
+			state.nextCheckAt = Date.now() + AUTO_LOAD_NON_TARGET_RETRY_MS;
+			if (state.warnedUin !== uin) {
+				state.warnedUin = uin;
+				this.log.info("auto-load gate: PID=%d logged in as UIN=%s (target UIN=%s) — skip, leaving process untouched", session.pid, uin, this.autoLoadTargetUin);
+			}
+			return;
+		}
+		this.log.info("auto-load gate: PID=%d logged in as target UIN=%s, loading hook", session.pid, uin);
+		await session.load();
 	}
 	ensureSession(pid) {
 		let session = this.sessions.get(pid);
@@ -1616,9 +1618,11 @@ function shouldAutoLoadPid(pid, log) {
 //#region ../common/src/runtime.ts
 var CONFIG_DIR = "config";
 var RUNTIME_CONFIG_PATH = path$1.join(CONFIG_DIR, "runtime.json");
+var DEFAULT_HOOK_TARGET_UIN = "";
 var DEFAULT_RUNTIME_CONFIG = {
 	webuiPort: 5099,
-	hookAutoLoad: false
+	hookAutoLoad: false,
+	hookTargetUin: DEFAULT_HOOK_TARGET_UIN
 };
 function loadRuntimeConfig() {
 	fs$1.mkdirSync(CONFIG_DIR, { recursive: true });
@@ -1630,14 +1634,24 @@ function loadRuntimeConfig() {
 	} else {
 		normalized = {
 			webuiPort: normalizePort(loaded.webuiPort ?? 5099, 5099),
-			hookAutoLoad: normalizeBool(loaded.hookAutoLoad, false)
+			hookAutoLoad: normalizeBool(loaded.hookAutoLoad, false),
+			hookTargetUin: normalizeTargetUin(loaded.hookTargetUin)
 		};
-		if (normalized.webuiPort !== loaded.webuiPort || normalized.hookAutoLoad !== loaded.hookAutoLoad) saveRuntimeConfig(normalized);
+		// 星野 v0.6+：进程注入默认改为纯手动模式。旧版 runtime.json 若开启了
+		// hookAutoLoad，这里会迁移为 false；独立启动 SnowLuma 时仍可用
+		// SNOWLUMA_HOOK_AUTOLOAD 环境变量显式覆盖（星野桌面壳会强制为 0）。
+		if (normalized.hookAutoLoad === true) normalized.hookAutoLoad = false;
+		if (normalized.webuiPort !== loaded.webuiPort || normalized.hookAutoLoad !== loaded.hookAutoLoad || normalized.hookTargetUin !== loaded.hookTargetUin) saveRuntimeConfig(normalized);
 	}
 	const envPort = envPortOverride();
 	if (envPort !== void 0) normalized = {
 		...normalized,
 		webuiPort: envPort
+	};
+	const envTarget = envTargetOverride();
+	if (envTarget !== void 0) normalized = {
+		...normalized,
+		hookTargetUin: envTarget
 	};
 	return normalized;
 }
@@ -1658,7 +1672,8 @@ function tryLoadRuntimeConfig() {
 		if (!isObject$1(parsed)) return null;
 		return {
 			webuiPort: normalizePort(parsed.webuiPort ?? 5099, 5099),
-			hookAutoLoad: normalizeBool(parsed.hookAutoLoad, false)
+			hookAutoLoad: normalizeBool(parsed.hookAutoLoad, false),
+			hookTargetUin: normalizeTargetUin(parsed.hookTargetUin)
 		};
 	} catch {
 		return null;
@@ -1691,6 +1706,23 @@ function normalizeBool(value, fallback) {
 		if (v === "false" || v === "0" || v === "no" || v === "off" || v === "") return false;
 	}
 	return fallback;
+}
+function normalizeTargetUin(value) {
+	if (typeof value === "number" && Number.isInteger(value) && value > 0) return String(value);
+	if (typeof value === "string") {
+		const v = value.trim();
+		if (!v || v === "*" || v === "0" || v === "all" || v === "false" || v === "none" || v.toLowerCase() === "off") return "";
+		if (/^\d{5,12}$/.test(v)) return v;
+	}
+	return DEFAULT_HOOK_TARGET_UIN;
+}
+function envTargetOverride() {
+	const raw = process.env.SNOWLUMA_HOOK_TARGET_UIN;
+	if (typeof raw !== "string") return void 0;
+	const v = raw.trim();
+	if (!v || v === "*" || v === "0" || v === "all" || v === "false" || v === "none" || v.toLowerCase() === "off") return "";
+	if (/^\d{5,12}$/.test(v)) return v;
+	return void 0;
 }
 function isObject$1(value) {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -153694,11 +153726,17 @@ async function main() {
 	const bridgeManager = new BridgeManager();
 	const oneBotManager = new OneBotManager();
 	const autoLoadOnDiscovery = resolveAutoLoad(runtimeConfig.hookAutoLoad);
+	const autoLoadTargetUin = runtimeConfig.hookTargetUin || "";
 	const hookManager = new HookManager({
 		bridgeManager,
-		autoLoadOnDiscovery
+		autoLoadOnDiscovery,
+		autoLoadTargetUin
 	});
-	if (autoLoadOnDiscovery) log.info("hook auto-load enabled: every discovered QQ process will be injected");
+	if (autoLoadOnDiscovery) {
+		if (autoLoadTargetUin) log.info("hook auto-load enabled: only QQ process logged in as target UIN=%s will be injected", autoLoadTargetUin);
+		else log.info("hook auto-load enabled: every discovered QQ process will be injected");
+	}
+	if (autoLoadTargetUin) log.info("hook account filter enabled: target UIN=%s (runtime.json hookTargetUin or env SNOWLUMA_HOOK_TARGET_UIN can override; empty string disables)", autoLoadTargetUin);
 	oneBotManager.bind(bridgeManager);
 	try {
 		const { initWebUI } = await import("./server-C5X22W-e.js");

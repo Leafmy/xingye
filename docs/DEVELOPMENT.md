@@ -13,7 +13,7 @@ Xingye/
 ├── version.json          # 版本号单一来源
 ├── ecosystem.config.cjs  # PM2 配置（服务器部署用）
 ├── README.md
-└── source/               # 全部开发源码
+└── src/               # 全部开发源码
     ├── src-tauri/        #   Tauri 壳（Rust）：窗口、托盘、单实例、自启动
     ├── panel-frontend/   #   管理面板（Vue 3，BakaXL 风格玻璃 UI，双主题）
     ├── bot-backend/      #   业务后端（TypeScript/Express）
@@ -57,3 +57,4 @@ node updater/server-update.js apply
 ```
 
 更新器保留 `.env`、数据库、日志与运行时配置，优先增量包、失败回退全量。详见 `docs/DEPLOY-GUIDE.md`。
+

@@ -5,8 +5,40 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>星野控制台</title>
+    <script>
+      // 尽早应用用户选择的明暗主题，避免启动页与主界面切换时闪烁
+      try {
+        const saved = localStorage.getItem('xingye-theme')
+        const dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+        document.documentElement.classList.toggle('dark', dark)
+      } catch { /* 忽略：无 localStorage 时保持浅色 */ }
+    </script>
+    <style>
+
+      /* ========== 启动页：纯内联样式，HTML 解析后立即渲染，覆盖 JS/Vue 资源加载阶段的白屏 ========== */
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body { background: #eef5fc; }
+      #splash {
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; align-items: center; justify-content: center;
+        background: #eef5fc;
+        font-family: 'Noto Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+        user-select: none; cursor: default;
+        transition: opacity 0.45s ease;
+      }
+      html.dark body, html.dark #splash { background: #151624; }
+      #splash.splash-out { opacity: 0; pointer-events: none; }
+      .splash-bar { width: 150px; height: 4px; border-radius: 4px; overflow: hidden; background: rgba(40,147,240,0.16); }
+      .splash-bar::after {
+        content: ''; display: block; height: 100%; width: 40%;
+        border-radius: 4px; background: rgb(40,147,240);
+        animation: splashBar 1.2s ease-in-out infinite;
+      }
+      @keyframes splashBar { 0% { transform: translateX(-120%); } 100% { transform: translateX(420%); } }
+    </style>
   </head>
   <body>
+    <div id="splash"><div class="splash-bar" role="progressbar" aria-label="加载中"></div></div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

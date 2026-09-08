@@ -8,6 +8,57 @@ const isTauriEnv = ref(isTauri())
 
 // 服务器连接配置
 const serverConfig = ref<ServerConfig>(getServerConfig())
+
+// 暗色模式（与 index.html 启动页脚本同键名 xingye-theme，避免首帧闪烁）
+const isDarkMode = ref((() => {
+  const saved = localStorage.getItem('xingye-theme')
+  return saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+})())
+function toggleDarkMode() {
+  isDarkMode.value = !isDarkMode.value
+  localStorage.setItem('xingye-theme', isDarkMode.value ? 'dark' : 'light')
+  applyDarkMode()
+}
+function applyDarkMode() {
+  document.documentElement.classList.toggle('dark', isDarkMode.value)
+}
+// 初始化暗色模式
+applyDarkMode()
+
+// 应用关闭行为设置
+const closeBehavior = ref('minimize')
+const closeBehaviorLoading = ref(false)
+const closeBehaviorMsg = ref('')
+
+async function loadCloseBehavior() {
+  if (!isTauriEnv.value) return
+  try {
+    const behavior = await tauriApi.getCloseBehavior()
+    closeBehavior.value = behavior
+  } catch (e) {
+    console.warn('Failed to load close behavior:', e)
+  }
+}
+
+async function saveCloseBehavior(behavior: string) {
+  if (!isTauriEnv.value) return
+  closeBehaviorLoading.value = true
+  try {
+    await tauriApi.setCloseBehavior(behavior)
+    closeBehavior.value = behavior
+    const check = await tauriApi.getCloseBehavior()
+    if (check !== behavior) {
+      closeBehavior.value = check
+      console.error('Close behavior save verification failed: expected', behavior, 'got', check)
+    }
+  } catch (e) {
+    console.error('Failed to save close behavior:', e)
+    closeBehaviorMsg.value = '保存失败，请重试'
+    setTimeout(() => { closeBehaviorMsg.value = '' }, 3000)
+  } finally {
+    closeBehaviorLoading.value = false
+  }
+}
 const _showServerSettings = ref(false)
 const serverTestResult = ref<{ success: boolean; message: string } | null>(null)
 const serverTestLoading = ref(false)
@@ -76,17 +127,66 @@ const tokenHistory = ref<number[]>([])
 const maxHistoryPoints = 30
 
 const navItems = [
-  { key: 'overview', label: '总览', desc: '主机与服务状态', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>' },
-  { key: 'usage', label: '用量', desc: 'AI 调用统计', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>' },
-  { key: 'settings', label: '功能管理', desc: '功能配置管理', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>' },
-  { key: 'sysconfig', label: '系统设置', desc: 'Bot 系统配置', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg>' },
-  { key: 'logs', label: '日志', desc: '实时事件流', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>' },
-  { key: 'messaging', label: '消息', desc: '发送群消息', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>' },
-  { key: 'cli', label: '终端', desc: 'Web CLI', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>' },
-  { key: 'friendmgmt', label: '好友管理', desc: '好友申请与白名单', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
-  { key: 'qqmgmt', label: 'QQ 管理', desc: 'SnowLuma 注入与进程', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>' },
-  { key: 'connection', label: '连接', desc: '服务器连接配置', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' },
+  // ========== 监控 ==========
+  { key: 'overview', label: '总览', desc: '主机与服务状态', section: '监控', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>' },
+  { key: 'usage', label: '用量', desc: 'AI 调用与Token统计', section: '监控', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>' },
+  { key: 'logs', label: '日志', desc: '实时事件与错误流', section: '监控', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>' },
+  // ========== Bot 管理 ==========
+  { key: 'sysconfig', label: '系统配置', desc: 'Bot核心参数与连接', section: 'Bot 管理', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>' },
+  { key: 'settings', label: '功能开关', desc: 'AI/媒体/游戏功能管理', section: 'Bot 管理', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 9 6 6"/><path d="m15 9-6 6"/></svg>' },
+  { key: 'cli', label: '终端', desc: 'Web CLI 命令行', section: 'Bot 管理', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>' },
+  // ========== QQ ==========
+  { key: 'qqmgmt', label: 'QQ 连接', desc: 'SnowLuma注入与进程', section: 'QQ', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>' },
+  { key: 'friendmgmt', label: '好友管理', desc: '好友申请与白名单', section: 'QQ', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' },
+  { key: 'messaging', label: '消息发送', desc: '向群组发送消息', section: 'QQ', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>' },
+  // ========== 远程 ==========
+  { key: 'connection', label: '远程连接', desc: '服务器连接配置', section: '远程', icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>' },
 ]
+
+// 侧边栏分组（可折叠）：按 section 字段自动聚合导航项
+const navSections = computed(() => {
+  const groups: { name: string; items: typeof navItems }[] = []
+  for (const item of navItems) {
+    const name = item.section || ''
+    let g = groups.find(x => x.name === name)
+    if (!g) { g = { name, items: [] }; groups.push(g) }
+    g.items.push(item)
+  }
+  return groups
+})
+const collapsedSections = ref<Record<string, boolean>>({})
+function toggleSection(name: string) {
+  collapsedSections.value[name] = !collapsedSections.value[name]
+}
+
+// App 设置第二窗口
+async function openAppSettingsWindow() {
+  if (isTauriEnv.value) {
+    try { await tauriApi.openAppSettings(); return } catch (e) { console.error('Failed to open app settings window:', e) }
+  }
+  // 非 Tauri 环境回退：应用内打开设置页
+  activeTab.value = 'appsettings'
+}
+
+// 第二窗口检测：hash 为 #/app-settings 时渲染独立设置布局
+const isAppSettingsWindow = typeof window !== 'undefined' && window.location.hash === '#/app-settings'
+
+// App 设置页：模块主开关状态
+const appModuleState = ref<{ module_enabled: boolean; backend_running: boolean; snowluma_running: boolean } | null>(null)
+const moduleSwitching = ref(false)
+async function fetchModuleState() {
+  if (!isTauriEnv.value) return
+  try { appModuleState.value = await tauriApi.getModuleState() } catch {}
+}
+async function toggleModuleEnabled() {
+  if (!appModuleState.value || moduleSwitching.value) return
+  moduleSwitching.value = true
+  const next = !appModuleState.value.module_enabled
+  try {
+    appModuleState.value = await tauriApi.setModuleEnabled(next)
+  } catch (e) { console.error('Failed to toggle module:', e) }
+  moduleSwitching.value = false
+}
 
 // ================= WebSocket =================
 let ws: WebSocket | null = null
@@ -162,6 +262,11 @@ const snowPasswordInput = ref('')
 const snowAuthMsg = ref('')
 const snowProcesses = ref<SnowProcess[]>([])
 const snowConnections = ref<SnowConn[]>([])
+const showConnPopover = ref(false)
+let connPopoverTimer: ReturnType<typeof setTimeout> | null = null
+function openConnPopover() { if (connPopoverTimer) { clearTimeout(connPopoverTimer); connPopoverTimer = null } showConnPopover.value = true }
+function scheduleCloseConnPopover() { connPopoverTimer = setTimeout(() => { showConnPopover.value = false }, 300) }
+function cancelCloseConnPopover() { if (connPopoverTimer) { clearTimeout(connPopoverTimer); connPopoverTimer = null } }
 const snowAccounts = ref<{ uin: number; nickname: string }[]>([])
 const snowLogs = ref<{ timestamp: string; level: string; message: string }[]>([])
 const snowLoading = ref(false)
@@ -1081,10 +1186,59 @@ watch(activeTab, async (tab) => {
 })
 
 onMounted(() => {
-  serverFetch('/api/version').then(r => r.json()).then(d => { if (d.success) VERSION.value = d.version }).catch(() => { VERSION.value = '?' })
+  // 修复窗口切换后光标加载失败：重新应用 cursor 样式
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible') {
+      document.documentElement.classList.add('cursor-refresh')
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document.documentElement.classList.remove('cursor-refresh')
+        })
+      })
+    }
+  }
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+
+  const handleFocus = () => {
+    document.documentElement.classList.add('cursor-refresh')
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove('cursor-refresh')
+      })
+    })
+  }
+  window.addEventListener('focus', handleFocus)
+
+  // Cleanup on unmount
+  onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+    window.removeEventListener('focus', handleFocus)
+  })
+  // 版本号获取（两种窗口都需要）
+  ;(async () => {
+    try {
+      if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+        const info = await (window as any).__TAURI_INTERNALS__.invoke('get_version')
+        if (info && info.version && info.version !== '0.0.0' && info.version !== '0.0.0-dev') {
+          VERSION.value = info.version
+          return
+        }
+      }
+    } catch { /* Tauri 不可用，回退到服务器 */ }
+    serverFetch('/api/version').then(r => r.json()).then(d => {
+      if (d.success && d.version && d.version !== '0.0.0-dev') VERSION.value = d.version
+      else if (!VERSION.value || VERSION.value === '...') VERSION.value = d.version || '0.6.0'
+    }).catch(() => { if (!VERSION.value || VERSION.value === '...') VERSION.value = '0.6.0' })
+  })()
+  // App 设置第二窗口：加载关闭行为与模块状态，跳过主面板数据轮询
+  if (isAppSettingsWindow) {
+    loadCloseBehavior()
+    fetchModuleState()
+    return
+  }
   usageMonth.value = new Date().toISOString().slice(0, 7)
   connect(); fetchTokenStats(); fetchGroups(); fetchSettingsData(); fetchSysConfig(); fetchFeatures()
-  fetchWhitelist(); fetchFriendRequests()
+  fetchWhitelist(); fetchFriendRequests(); loadCloseBehavior()
   const t1 = setInterval(fetchTokenStats, 60000)
   const t2 = setInterval(fetchGroups, 300000)
   const t4 = setInterval(fetchSettingsData, 120000)
@@ -1104,7 +1258,80 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <!-- App 设置第二窗口：独立轻量布局 -->
+  <div v-if="isAppSettingsWindow" class="app app-settings-window">
+    <div v-if="isTauriEnv" class="titlebar" data-tauri-drag-region>
+      <div class="titlebar-drag" data-tauri-drag-region>
+        <img src="/xingye-logo.png" alt="星野" class="titlebar-logo" />
+        <span class="titlebar-title">星野 · App 设置</span>
+      </div>
+      <div class="titlebar-controls">
+        <button class="titlebar-btn" @click="minimizeWindow" title="最小化">
+          <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1.5" fill="currentColor"/></svg>
+        </button>
+        <button class="titlebar-btn titlebar-btn-close" @click="closeWindow" title="关闭">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1L11 11M1 11L11 1" stroke="currentColor" stroke-width="1.5"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="settings-window-body">
+      <div class="settings-window-header">
+        <h2 class="usage-title">App 设置</h2>
+        <p class="usage-subtitle">桌面壳行为与应用偏好 · 独立生效并持久化</p>
+        <span class="settings-window-ver">v{{ VERSION }}</span>
+      </div>
+
+      <div class="panel anim-fade-up">
+        <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">🖥️</span> 窗口关闭行为</div><div class="panel-desc">点击主窗口关闭按钮时的默认操作</div></div></div>
+        <div class="panel-body settings-body">
+          <div class="close-behavior-options">
+            <label class="close-behavior-option" :class="{ active: closeBehavior === 'minimize' }">
+              <input type="radio" name="closeBehaviorWin" value="minimize" :checked="closeBehavior === 'minimize'" @change="saveCloseBehavior('minimize')" :disabled="closeBehaviorLoading">
+              <div class="close-behavior-icon">📥</div>
+              <div class="close-behavior-text">
+                <div class="close-behavior-title">保留在系统托盘</div>
+                <div class="close-behavior-desc">最小化到托盘继续运行</div>
+              </div>
+            </label>
+            <label class="close-behavior-option" :class="{ active: closeBehavior === 'close' }">
+              <input type="radio" name="closeBehaviorWin" value="close" :checked="closeBehavior === 'close'" @change="saveCloseBehavior('close')" :disabled="closeBehaviorLoading">
+              <div class="close-behavior-icon">❌</div>
+              <div class="close-behavior-text">
+                <div class="close-behavior-title">直接关闭</div>
+                <div class="close-behavior-desc">完全退出应用</div>
+              </div>
+            </label>
+          </div>
+          <div v-if="closeBehaviorMsg" class="settings-toast error" style="margin-top:10px">{{ closeBehaviorMsg }}</div>
+        </div>
+      </div>
+
+      <div class="panel anim-fade-up" style="margin-top:16px">
+        <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">🎨</span> 外观</div><div class="panel-desc">应用深浅色偏好（覆盖系统设置）</div></div></div>
+        <div class="panel-body settings-body">
+          <div class="sys-row">
+            <span>暗色模式</span>
+            <button class="btn-outline" style="font-size:12px;padding:6px 16px" @click="toggleDarkMode">{{ isDarkMode ? '已开启（点击切换为亮色）' : '已关闭（点击切换为暗色）' }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel anim-fade-up" style="margin-top:16px">
+        <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">⚙️</span> 星野模块</div><div class="panel-desc">SnowLuma + Bot Backend 主开关（独立于 App 生命周期）</div></div></div>
+        <div class="panel-body settings-body">
+          <div class="sys-row">
+            <span>模块运行</span>
+            <button class="btn-outline" style="font-size:12px;padding:6px 16px" :disabled="moduleSwitching || !appModuleState" @click="toggleModuleEnabled">{{ appModuleState?.module_enabled ? '运行中 · 点击停止' : '已停止 · 点击启动' }}</button>
+          </div>
+          <div class="sys-hint" style="margin-top:8px">
+            SnowLuma：{{ appModuleState?.snowluma_running ? '运行中' : '停止' }} · Bot Backend：{{ appModuleState?.backend_running ? '运行中' : '停止' }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div v-else class="app">
     <!-- 自定义标题栏 (Tauri环境) -->
     <div v-if="isTauriEnv" class="titlebar" data-tauri-drag-region>
       <div class="titlebar-drag" data-tauri-drag-region>
@@ -1135,13 +1362,32 @@ onMounted(() => {
       </div>
       <div class="sidebar-nav-wrap">
         <nav class="sidebar-nav">
-          <button v-for="item in navItems" :key="item.key" @click="activeTab = item.key" class="nav-item" :class="{ active: activeTab === item.key }">
-            <span class="nav-icon" v-html="item.icon"></span>
-            <span v-if="sidebarOpen" class="nav-text"><span class="nav-label">{{ item.label }}</span><span class="nav-desc">{{ item.desc }}</span></span>
-          </button>
+          <template v-for="sec in navSections" :key="sec.name">
+            <div v-if="sec.name && sidebarOpen" class="nav-section-header nav-section-click" @click="toggleSection(sec.name)">
+              <span>{{ sec.name }}</span>
+              <svg class="nav-section-chevron" :class="{ collapsed: collapsedSections[sec.name] }" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            <template v-if="!sec.name || !collapsedSections[sec.name]">
+              <button v-for="item in sec.items" :key="item.key" @click="activeTab = item.key" class="nav-item" :class="{ active: activeTab === item.key }">
+                <span class="nav-icon" v-html="item.icon"></span>
+                <span v-if="sidebarOpen" class="nav-text"><span class="nav-label">{{ item.label }}</span><span class="nav-desc">{{ item.desc }}</span></span>
+              </button>
+            </template>
+          </template>
         </nav>
       </div>
-      <div class="sidebar-footer"><div class="copyright">© 2026 Xingye Bot</div></div>
+      <div class="sidebar-footer">
+        <button v-if="isTauriEnv" class="app-settings-btn" @click="openAppSettingsWindow" title="打开 App 设置窗口">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+          <span v-if="sidebarOpen">App 设置</span>
+        </button>
+        <button class="dark-mode-toggle" @click="toggleDarkMode" :title="isDarkMode ? '切换到亮色模式' : '切换到暗色模式'">
+          <svg v-if="isDarkMode" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+          <svg v-else width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          <span v-if="sidebarOpen">{{ isDarkMode ? '亮色模式' : '暗色模式' }}</span>
+        </button>
+        <div class="copyright">© 2026 Xingye Bot</div>
+      </div>
     </aside>
 
     <div class="main">
@@ -1159,7 +1405,43 @@ onMounted(() => {
           <span v-if="isRemoteMode()" class="status-badge" style="background:rgba(var(--theme-accent-color), 0.12);color:var(--primary);font-size:11px">
             🌐 {{ serverConfig.name || '远程' }}
           </span>
-          <span class="status-badge" :class="wsConnected ? 'online' : 'offline'"><span class="status-dot"></span>{{ wsConnected ? '已连接' : '未连接' }}</span>
+          <div class="conn-popover-wrap" @mouseenter="openConnPopover()" @mouseleave="scheduleCloseConnPopover()">
+            <span class="status-badge" :class="wsConnected ? 'online' : 'offline'"><span class="status-dot"></span>{{ wsConnected ? '已连接' : '未连接' }}</span>
+            <div v-if="showConnPopover" class="conn-popover" @mouseenter="cancelCloseConnPopover()" @mouseleave="scheduleCloseConnPopover()">
+              <div class="conn-popover-title">连接状态详情</div>
+              <div class="conn-popover-item">
+                <span class="conn-popover-dot" :style="{ background: wsConnected ? '#16a34a' : '#e91f4b' }"></span>
+                <div class="conn-popover-info">
+                  <span class="conn-popover-name">Bot Backend</span>
+                  <span class="conn-popover-detail">{{ wsConnected ? 'WebSocket 已连接' : 'WebSocket 未连接' }}</span>
+                  <span class="conn-popover-detail">端口 :3000 · {{ wsConnected ? '运行中' : '离线' }}</span>
+                </div>
+              </div>
+              <div class="conn-popover-item" v-if="isRemoteMode()">
+                <span class="conn-popover-dot" style="background:#2893f0"></span>
+                <div class="conn-popover-info">
+                  <span class="conn-popover-name">远程服务器</span>
+                  <span class="conn-popover-detail">{{ serverConfig.baseUrl || serverConfig.wsUrl }}</span>
+                  <span class="conn-popover-detail">{{ serverConfig.name || '远程模式' }}</span>
+                </div>
+              </div>
+              <div class="conn-popover-item" v-for="p in snowProcesses" :key="p.pid">
+                <span class="conn-popover-dot" :style="{ background: p.connected ? '#16a34a' : '#e91f4b' }"></span>
+                <div class="conn-popover-info">
+                  <span class="conn-popover-name">QQ · {{ p.name || 'QQ' }}</span>
+                  <span class="conn-popover-detail">PID {{ p.pid }} · UIN {{ p.uin || '未知' }}</span>
+                  <span class="conn-popover-detail">{{ p.status }} · {{ p.injected ? '已注入' : '未注入' }}</span>
+                </div>
+              </div>
+              <div class="conn-popover-item" v-if="snowProcesses.length === 0 && snowAuthed !== false">
+                <span class="conn-popover-dot" style="background:#999"></span>
+                <div class="conn-popover-info">
+                  <span class="conn-popover-name">QQ 进程</span>
+                  <span class="conn-popover-detail">暂无进程数据（需登录 SnowLuma）</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -1396,6 +1678,34 @@ onMounted(() => {
             <div v-if="settingsMsg" class="settings-toast">{{ settingsMsg }}</div>
 
             <div class="settings-grid">
+
+              <!-- 应用关闭行为设置 -->
+              <div class="panel settings-card" v-if="isTauriEnv">
+                <div class="panel-header">
+                  <div><div class="panel-title"><span class="panel-title-icon">🖥️</span> 窗口关闭行为</div><div class="panel-desc">点击关闭按钮时的默认操作</div></div>
+                </div>
+                <div class="panel-body settings-body">
+                  <div class="close-behavior-options">
+                    <label class="close-behavior-option" :class="{ active: closeBehavior === 'minimize' }">
+                      <input type="radio" name="closeBehavior" value="minimize" :checked="closeBehavior === 'minimize'" @change="saveCloseBehavior('minimize')" :disabled="closeBehaviorLoading">
+                      <div class="close-behavior-icon">📥</div>
+                      <div class="close-behavior-text">
+                        <div class="close-behavior-title">保留在系统托盘</div>
+                        <div class="close-behavior-desc">最小化到托盘继续运行</div>
+                      </div>
+                    </label>
+                    <label class="close-behavior-option" :class="{ active: closeBehavior === 'close' }">
+                      <input type="radio" name="closeBehavior" value="close" :checked="closeBehavior === 'close'" @change="saveCloseBehavior('close')" :disabled="closeBehaviorLoading">
+                      <div class="close-behavior-icon">❌</div>
+                      <div class="close-behavior-text">
+                        <div class="close-behavior-title">直接关闭</div>
+                        <div class="close-behavior-desc">完全退出应用</div>
+                      </div>
+                    </label>
+                  </div>
+                  <div v-if="closeBehaviorMsg" class="settings-toast error" style="margin-top:10px">{{ closeBehaviorMsg }}</div>
+                </div>
+              </div>
 
               <!-- Steam 订阅管理 -->
               <div class="panel settings-card">
@@ -1934,6 +2244,29 @@ onMounted(() => {
             </div>
           </div>
 
+          <!-- App 设置（应用内回退页，桌面端推荐使用第二窗口） -->
+          <div v-if="activeTab === 'appsettings'" class="settings-page">
+            <div class="settings-header">
+              <h2 class="usage-title">App 设置</h2>
+              <p class="usage-subtitle">桌面壳行为与应用偏好</p>
+            </div>
+            <div class="panel anim-fade-up" style="animation-delay:60ms">
+              <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">🎨</span> 外观</div><div class="panel-desc">应用深浅色偏好（覆盖系统设置）</div></div></div>
+              <div class="panel-body settings-body">
+                <div class="sys-row">
+                  <span>暗色模式</span>
+                  <button class="btn-outline" style="font-size:12px;padding:6px 16px" @click="toggleDarkMode">{{ isDarkMode ? '已开启（点击切换为亮色）' : '已关闭（点击切换为暗色）' }}</button>
+                </div>
+              </div>
+            </div>
+            <div v-if="isTauriEnv" class="panel anim-fade-up" style="animation-delay:120ms;margin-top:16px">
+              <div class="panel-header"><div><div class="panel-title"><span class="panel-title-icon">🪟</span> 独立设置窗口</div><div class="panel-desc">在单独的窗口中打开 App 设置</div></div></div>
+              <div class="panel-body settings-body">
+                <button class="btn-primary" @click="openAppSettingsWindow">打开 App 设置窗口</button>
+              </div>
+            </div>
+          </div>
+
         </div>
       </main>
     </div>
@@ -2050,6 +2383,65 @@ onMounted(() => {
   .level-error { color: #f5658a; }
 }
 
+/* ========== 深色模式：手动切换（与 index.html 启动页同用 html.dark 类） ========== */
+:root.dark {
+  --background: #202020;
+  --foreground: #e8e8e8;
+  --card: #2a2a2a;
+  --card-foreground: #e8e8e8;
+  --secondary: #333333;
+  --muted: #2e2e2e;
+  --muted-foreground: #b4b4b4;
+  --accent: rgba(40, 147, 240, 0.18);
+  --accent-foreground: #6cb8f8;
+  --border: #3a3a3a;
+  --sidebar-bg: #242424;
+  --sidebar-border: #3a3a3a;
+  --sidebar-accent: rgba(40, 147, 240, 0.15);
+  --header-bg: rgba(32, 32, 32, 0.6);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: 0 6px 20px rgba(40, 147, 240, 0.22);
+  --glass-card: rgba(42, 42, 42, 0.72);
+  --glass-sidebar: rgba(32, 32, 32, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.10);
+  --glass-border-soft: rgba(255, 255, 255, 0.08);
+  --inset-bg: rgba(255, 255, 255, 0.05);
+  --inset-bg-strong: rgba(255, 255, 255, 0.07);
+  --inset-border: rgba(255, 255, 255, 0.08);
+  --outline-border: #4a4a4a;
+  --badge-bg: rgba(255, 255, 255, 0.08);
+  --modal-bg: rgba(40, 40, 40, 0.92);
+  --tooltip-bg: #333333;
+  --tooltip-fg: #e8e8e8;
+  --scrollbar-thumb: #4a4a4a;
+  --scrollbar-thumb-hover: #5a5a5a;
+  --success-text: #78e75b;
+  color-scheme: dark;
+}
+:root.dark .app {
+  background:
+    radial-gradient(circle at calc(100% - 95px) calc(100% - 95px), rgba(255, 255, 255, 0.07) 180px, rgba(255, 255, 255, 0) 400px),
+    radial-gradient(circle at 120px 15%, rgba(40, 147, 240, 0.28) 0%, rgba(40, 147, 240, 0) 340px),
+    linear-gradient(140deg, rgba(40, 147, 240, 0.20) 0px, rgba(40, 147, 240, 0.04) 320px, rgba(124, 111, 240, 0.10) 62%, rgba(40, 147, 240, 0.14) 100%),
+    var(--background);
+}
+:root.dark .level-info { color: #5ab0f5; }
+:root.dark .level-success { color: #78e75b; }
+:root.dark .level-warn { color: #fbbf24; }
+:root.dark .level-error { color: #f5658a; }
+
+/* 暗色模式切换按钮 */
+.dark-mode-toggle {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--muted-foreground); cursor: pointer; font-size: 12px;
+  transition: all 0.2s ease; width: 100%;
+}
+.dark-mode-toggle:hover {
+  background: var(--accent); color: var(--foreground);
+}
+.dark-mode-toggle svg { flex-shrink: 0; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body, #root { height: 100%; }
 body {
@@ -2152,8 +2544,44 @@ select option { background: var(--card); color: var(--foreground); }
 .nav-label { line-height: 1.2; }
 .nav-desc { font-size: 10px; font-weight: 400; color: var(--muted-foreground); }
 
+
+.nav-section-header {
+  font-size: 10px; font-weight: 600; color: var(--muted-foreground);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 12px 12px 4px; opacity: 0.6;
+}
+.nav-section-click {
+  display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; user-select: none; border-radius: 6px;
+  transition: opacity 0.15s;
+}
+.nav-section-click:hover { opacity: 1; }
+.nav-section-chevron { transition: transform 0.2s ease; opacity: 0.8; }
+.nav-section-chevron.collapsed { transform: rotate(-90deg); }
+.app-settings-btn {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--muted-foreground); cursor: pointer; font-size: 12px;
+  transition: all 0.2s ease; width: 100%; margin-bottom: 2px;
+}
+.app-settings-btn:hover { background: var(--accent); color: var(--foreground); }
+.app-settings-btn svg { flex-shrink: 0; }
 .sidebar-footer { padding: 12px 16px; flex-shrink: 0; }
 .copyright { font-size: 10px; color: var(--muted-foreground); }
+
+/* ========== App 设置第二窗口 ========== */
+.app-settings-window { display: flex; flex-direction: column; }
+.settings-window-body {
+  flex: 1; overflow-y: auto; padding: 24px;
+  max-width: 720px; width: 100%; margin: 0 auto;
+}
+.settings-window-header { margin-bottom: 16px; position: relative; }
+.settings-window-ver {
+  position: absolute; top: 0; right: 0;
+  font-size: 12px; font-weight: 600; color: var(--primary);
+  background: rgba(var(--theme-accent-color), 0.1);
+  padding: 4px 12px; border-radius: 12px;
+}
 
 /* ========== Main ========== */
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
@@ -2609,6 +3037,7 @@ select option { background: var(--card); color: var(--foreground); }
   background: rgba(22, 163, 74, 0.1); color: var(--success-text);
   font-size: 13px; text-align: center;
 }
+.settings-toast.error { background: rgba(233, 31, 75, 0.1); color: var(--destructive); margin-bottom: 0; }
 .btn-xs {
   padding: 3px 10px; border-radius: 5px; border: none;
   font-size: 11px; cursor: pointer;
@@ -2731,10 +3160,92 @@ select option { background: var(--card); color: var(--foreground); }
 }
 .toggle-btn.on { background: var(--primary); }
 .toggle-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ========== Connection Popover ========== */
+.conn-popover-wrap { position: relative; display: inline-flex; }
+.conn-popover {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  min-width: 320px; max-width: 420px;
+  background: var(--modal-bg); border: 1px solid var(--inset-border);
+  backdrop-filter: var(--glass-blur); border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18); padding: 12px;
+  z-index: 100; animation: fadeUp 0.2s ease-out;
+}
+.conn-popover::before {
+  content: ''; position: absolute; top: -6px; right: 24px;
+  width: 12px; height: 12px; background: var(--modal-bg);
+  border-left: 1px solid var(--inset-border); border-top: 1px solid var(--inset-border);
+  transform: rotate(45deg);
+}
+.conn-popover-title {
+  font-size: 12px; font-weight: 600; color: var(--foreground);
+  margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--inset-border);
+}
+.conn-popover-item {
+  display: flex; align-items: flex-start; gap: 10px; padding: 6px 0;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+.conn-popover-item:last-child { border-bottom: none; }
+.conn-popover-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 3px;
+}
+.conn-popover-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.conn-popover-name { font-size: 12px; font-weight: 600; color: var(--foreground); }
+.conn-popover-detail { font-size: 11px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .toggle-knob {
   position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
   background: #fff; border-radius: 50%; transition: transform 0.2s;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 .toggle-btn.on .toggle-knob { transform: translateX(18px); }
+
+/* ========== Close Behavior Options ========== */
+.close-behavior-options {
+  display: flex;
+  gap: 12px;
+}
+.close-behavior-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border-soft);
+  background: var(--inset-bg-strong);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.close-behavior-option:hover {
+  background: var(--accent);
+}
+.close-behavior-option.active {
+  border-color: var(--primary);
+  background: rgba(var(--primary-rgb, 28, 147, 245), 0.1);
+}
+.close-behavior-option input[type="radio"] {
+  display: none;
+}
+.close-behavior-icon {
+  font-size: 24px;
+}
+.close-behavior-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.close-behavior-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.close-behavior-desc {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
 </style>
+
+
+
+
+

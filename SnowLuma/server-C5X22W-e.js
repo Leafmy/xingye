@@ -2493,7 +2493,7 @@ function isDevAuthMode() {
 function envBootstrapPassword() {
 	const raw = process.env.SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD;
 	if (!raw || typeof raw !== "string") return null;
-	if (raw.length < 8) return null;
+	if (!isStrongPassword(raw)) return null;
 	return raw;
 }
 var PASSWORD_RULES = [
@@ -2543,21 +2543,49 @@ function hashPassword(password, salt) {
 function ensureConfigDir$1() {
 	fs.mkdirSync(CONFIG_DIR$1, { recursive: true });
 }
+function normalizeAccountName(value) {
+	if (typeof value !== "string") return "";
+	const v = value.trim().toLowerCase();
+	if (v.length < 2 || v.length > 32) return "";
+	return /^[a-z0-9][a-z0-9_.-]{0,31}$/.test(v) ? v : "";
+}
+function isValidUserRecord(value) {
+	if (!value || typeof value !== "object") return false;
+	return typeof value.username === "string"
+		&& (value.role === "admin" || value.role === "operator")
+		&& typeof value.passwordHash === "string" && /^[0-9a-f]+$/i.test(value.passwordHash)
+		&& typeof value.passwordSalt === "string" && /^[0-9a-f]+$/i.test(value.passwordSalt)
+		&& typeof value.mustChangePassword === "boolean";
+}
 function isValidState(value) {
 	if (!value || typeof value !== "object") return false;
+	if (Array.isArray(value.users)) {
+		return value.users.length > 0 && value.users.every(isValidUserRecord);
+	}
 	const v = value;
 	return typeof v.passwordHash === "string" && typeof v.passwordSalt === "string" && typeof v.mustChangePassword === "boolean" && /^[0-9a-f]+$/i.test(v.passwordHash) && /^[0-9a-f]+$/i.test(v.passwordSalt);
 }
-function generateInitialState(initialPassword) {
+function makeUserRecord(username, password, options = {}) {
+	if (options.allowWeak !== true && !isStrongPassword(password)) throw new Error("密码不符合强度要求");
 	const salt = randomBytes(16);
-	const hash = hashPassword(initialPassword, salt);
+	const hash = hashPassword(password, salt);
 	const now = (/* @__PURE__ */ new Date()).toISOString();
 	return {
+		username: normalizeAccountName(username),
+		role: options.role === "operator" ? "operator" : "admin",
 		passwordHash: hash.toString("hex"),
 		passwordSalt: salt.toString("hex"),
-		mustChangePassword: true,
-		generatedAt: now,
+		mustChangePassword: options.mustChangePassword !== false,
+		createdAt: options.createdAt || now,
 		updatedAt: now
+	};
+}
+function makeState(users, options = {}) {
+	return {
+		schemaVersion: 2,
+		users,
+		bootstrapPending: options.bootstrapPending === true,
+		updatedAt: (/* @__PURE__ */ new Date()).toISOString()
 	};
 }
 function backupCorruptConfig() {
@@ -2592,30 +2620,53 @@ var WebuiAuth = class WebuiAuth {
 	}
 	static load() {
 		if (isDevAuthMode()) {
-			const salt = randomBytes(16);
-			const hash = hashPassword(DEV_PASSWORD, salt);
 			const now = (/* @__PURE__ */ new Date()).toISOString();
-			return new WebuiAuth({
-				passwordHash: hash.toString("hex"),
-				passwordSalt: salt.toString("hex"),
-				mustChangePassword: false,
-				generatedAt: now,
-				updatedAt: now
-			}, null, true);
+			const user = makeUserRecord("admin", DEV_PASSWORD, { role: "admin", mustChangePassword: false, createdAt: now, allowWeak: true });
+			return new WebuiAuth(makeState([user], { bootstrapPending: false }), null, true);
 		}
 		ensureConfigDir$1();
 		if (fs.existsSync(WEBUI_CONFIG_PATH)) try {
 			const raw = fs.readFileSync(WEBUI_CONFIG_PATH, "utf8");
 			const parsed = JSON.parse(raw);
 			if (isValidState(parsed)) {
+				if (Array.isArray(parsed.users)) {
+					if (parsed.bootstrapPending === true) {
+						const pendingAdmin = parsed.users.find((u) => u.username === "admin" && u.mustChangePassword);
+						if (pendingAdmin) {
+							const initialPassword = randomBytes(8).toString("hex");
+							const users = parsed.users.map((u) => u.username === "admin"
+								? makeUserRecord("admin", initialPassword, { role: pendingAdmin.role, mustChangePassword: true, createdAt: u.createdAt, allowWeak: true })
+								: u);
+							const state = makeState(users, { bootstrapPending: true });
+							atomicWrite$1(state);
+							log$3.warn("previous bootstrap password was never rotated; regenerated a new one for admin");
+							return new WebuiAuth(state, initialPassword, false);
+						}
+					}
+					return new WebuiAuth(makeState(parsed.users, { bootstrapPending: parsed.bootstrapPending === true }), null, false);
+				}
 				if (parsed.mustChangePassword) {
 					const initialPassword = randomBytes(8).toString("hex");
-					const state = generateInitialState(initialPassword);
+					const users = [makeUserRecord("admin", initialPassword, { role: "admin", mustChangePassword: true, allowWeak: true })];
+					const state = makeState(users, { bootstrapPending: true });
 					atomicWrite$1(state);
 					log$3.warn("previous bootstrap password was never rotated; regenerated a new one");
 					return new WebuiAuth(state, initialPassword, false);
 				}
-				return new WebuiAuth(parsed, null, false);
+				const now = (/* @__PURE__ */ new Date()).toISOString();
+				const users = [{
+					username: "admin",
+					role: "admin",
+					passwordHash: parsed.passwordHash,
+					passwordSalt: parsed.passwordSalt,
+					mustChangePassword: false,
+					createdAt: parsed.generatedAt || now,
+					updatedAt: parsed.updatedAt || now
+				}];
+				const state = makeState(users, { bootstrapPending: false });
+				atomicWrite$1(state);
+				log$3.info("legacy webui.json migrated to multi-account schema (admin)");
+				return new WebuiAuth(state, null, false);
 			}
 			log$3.error("webui.json schema invalid; backing up and regenerating credentials");
 			backupCorruptConfig();
@@ -2625,22 +2676,17 @@ var WebuiAuth = class WebuiAuth {
 		}
 		const envPassword = envBootstrapPassword();
 		if (envPassword !== null) {
-			const salt = randomBytes(16);
-			const hash = hashPassword(envPassword, salt);
 			const now = (/* @__PURE__ */ new Date()).toISOString();
-			const state = {
-				passwordHash: hash.toString("hex"),
-				passwordSalt: salt.toString("hex"),
-				mustChangePassword: false,
-				generatedAt: now,
-				updatedAt: now
-			};
+			const user = makeUserRecord("admin", envPassword, { role: "admin", mustChangePassword: false, createdAt: now, allowWeak: true });
+			const state = makeState([user], { bootstrapPending: false });
 			atomicWrite$1(state);
 			log$3.info("webui credentials seeded from SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD");
 			return new WebuiAuth(state, null, false);
 		}
 		const initialPassword = randomBytes(8).toString("hex");
-		const state = generateInitialState(initialPassword);
+		const now = (/* @__PURE__ */ new Date()).toISOString();
+		const user = makeUserRecord("admin", initialPassword, { role: "admin", mustChangePassword: true, createdAt: now, allowWeak: true });
+		const state = makeState([user], { bootstrapPending: true });
 		atomicWrite$1(state);
 		return new WebuiAuth(state, initialPassword, false);
 	}
@@ -2658,14 +2704,24 @@ var WebuiAuth = class WebuiAuth {
 		this.initialPlain = null;
 		return p;
 	}
-	mustChangePassword() {
-		return this.state.mustChangePassword;
+	mustChangePassword(username) {
+		if (typeof username === "string" && username) {
+			return this.findUser(username)?.mustChangePassword === true;
+		}
+		return this.state.users.some((u) => u.username === "admin" && u.mustChangePassword);
 	}
-	verify(password) {
+	findUser(username) {
+		const name = normalizeAccountName(username);
+		if (!name) return null;
+		return this.state.users.find((u) => u.username === name) || null;
+	}
+	verify(username, password) {
 		if (typeof password !== "string" || password.length === 0) return false;
+		const user = this.findUser(username);
+		if (!user) return false;
 		try {
-			const salt = Buffer.from(this.state.passwordSalt, "hex");
-			const expected = Buffer.from(this.state.passwordHash, "hex");
+			const salt = Buffer.from(user.passwordSalt, "hex");
+			const expected = Buffer.from(user.passwordHash, "hex");
 			const got = hashPassword(password, salt);
 			if (got.length !== expected.length) return false;
 			return timingSafeEqual(got, expected);
@@ -2673,19 +2729,62 @@ var WebuiAuth = class WebuiAuth {
 			return false;
 		}
 	}
-	setPassword(newPassword) {
+	listUsers() {
+		return this.state.users.map((u) => ({
+			username: u.username,
+			role: u.role,
+			mustChangePassword: u.mustChangePassword,
+			createdAt: u.createdAt,
+			updatedAt: u.updatedAt
+		}));
+	}
+	createUser(username, password, role = "operator") {
 		if (this.devMode) throw new Error("开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改");
+		const name = normalizeAccountName(username);
+		if (!name) throw new Error("账号仅支持 2-32 位小写字母、数字与 . _ -");
+		if (this.findUser(name)) throw new Error("账号已存在");
+		if (!isStrongPassword(password)) throw new Error("密码不符合强度要求");
+		const user = makeUserRecord(name, password, { role, mustChangePassword: true });
+		const state = makeState([...this.state.users, user], { bootstrapPending: this.state.bootstrapPending });
+		atomicWrite$1(state);
+		this.state = state;
+		return this.listUsers().find((u) => u.username === name);
+	}
+	resetPassword(username, newPassword, options = {}) {
+		if (this.devMode) throw new Error("开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用密码修改");
+		const user = this.findUser(username);
+		if (!user) throw new Error("账号不存在");
 		if (!isStrongPassword(newPassword)) throw new Error("密码不符合强度要求");
 		const salt = randomBytes(16);
-		const next = {
+		const updated = {
+			...user,
 			passwordHash: hashPassword(newPassword, salt).toString("hex"),
 			passwordSalt: salt.toString("hex"),
-			mustChangePassword: false,
-			generatedAt: this.state.generatedAt,
+			mustChangePassword: options.mustChangePassword !== false,
 			updatedAt: (/* @__PURE__ */ new Date()).toISOString()
 		};
-		atomicWrite$1(next);
-		this.state = next;
+		const state = makeState(this.state.users.map((u) => u.username === user.username ? updated : u), { bootstrapPending: options.bootstrapFinished === true ? false : this.state.bootstrapPending });
+		atomicWrite$1(state);
+		this.state = state;
+		return true;
+	}
+	setPassword(username, newPassword) {
+		return this.resetPassword(username, newPassword, { mustChangePassword: false, bootstrapFinished: true });
+	}
+	deleteUser(username, currentUsername) {
+		if (this.devMode) throw new Error("开发模式 (SNOWLUMA_DEV_MODE=1) 已禁用账号管理");
+		const name = normalizeAccountName(username);
+		if (!name) throw new Error("账号不存在");
+		const current = normalizeAccountName(currentUsername);
+		if (name === current) throw new Error("不能删除当前登录账号");
+		const user = this.findUser(name);
+		if (!user) throw new Error("账号不存在");
+		const admins = this.state.users.filter((u) => u.role === "admin");
+		if (user.role === "admin" && admins.length <= 1) throw new Error("至少需要保留一个管理员账号");
+		const state = makeState(this.state.users.filter((u) => u.username !== name), { bootstrapPending: this.state.bootstrapPending });
+		atomicWrite$1(state);
+		this.state = state;
+		return true;
 	}
 };
 //#endregion
@@ -3503,6 +3602,8 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 			mustChangePassword: true
 		}, 403);
 		c.set("sessionToken", token);
+		c.set("sessionUser", info.username ?? "");
+		c.set("sessionRole", info.role ?? "");
 		await next();
 	});
 	setInterval(purgeExpiredTokens, 6e4).unref?.();
@@ -3526,8 +3627,11 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 				message: "请求格式错误"
 			}, 400);
 		}
+		const rawUsername = typeof body.username === "string" && body.username.trim() ? body.username : "admin";
+		const username = normalizeAccountName(rawUsername);
 		const password = typeof body.password === "string" ? body.password : "";
-		if (!auth.verify(password)) {
+		const user = auth.findUser(username);
+		if (!user || !auth.verify(username, password)) {
 			const current = loginAttempts.get(ip) ?? {
 				count: 0,
 				resetAt: now + LOGIN_LOCKOUT_MS
@@ -3542,15 +3646,18 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 		}
 		loginAttempts.delete(ip);
 		const token = randomBytes(32).toString("hex");
-		const mustChange = auth.mustChangePassword();
 		sessionTokens.set(token, {
 			expiresAt: now + TOKEN_TTL_MS,
-			mustChangePassword: mustChange
+			username: user.username,
+			role: user.role,
+			mustChangePassword: user.mustChangePassword
 		});
 		return c.json({
 			success: true,
 			token,
-			mustChangePassword: mustChange
+			username: user.username,
+			role: user.role,
+			mustChangePassword: user.mustChangePassword
 		});
 	});
 	app.post("/api/logout", (c) => {
@@ -3561,7 +3668,17 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 	app.get("/api/auth/state", (c) => {
 		const token = c.get("sessionToken");
 		const info = token ? sessionTokens.get(token) : void 0;
-		return c.json({ mustChangePassword: info?.mustChangePassword ?? auth.mustChangePassword() });
+		return c.json({
+			mustChangePassword: info?.mustChangePassword ?? false,
+			username: info?.username ?? "",
+			role: info?.role ?? ""
+		});
+	});
+	app.get("/api/auth/me", (c) => {
+		const token = c.get("sessionToken");
+		const info = token ? sessionTokens.get(token) : void 0;
+		if (!info) return c.json({ success: false, message: "Unauthorized" }, 401);
+		return c.json({ success: true, username: info.username, role: info.role, mustChangePassword: info.mustChangePassword });
 	});
 	app.post("/api/auth/check-strength", async (c) => {
 		let body;
@@ -3591,7 +3708,10 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 		}
 		const oldPassword = typeof body.oldPassword === "string" ? body.oldPassword : "";
 		const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
-		if (!auth.verify(oldPassword)) return c.json({
+		const token = c.get("sessionToken");
+		const session = token ? sessionTokens.get(token) : void 0;
+		const username = session?.username || "admin";
+		if (!auth.verify(username, oldPassword)) return c.json({
 			success: false,
 			message: "当前密码不正确"
 		}, 401);
@@ -3605,7 +3725,7 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 			message: "新密码不得与旧密码相同"
 		}, 400);
 		try {
-			auth.setPassword(newPassword);
+			auth.setPassword(username, newPassword);
 		} catch (err) {
 			log.warn("change password failed: %s", err instanceof Error ? err.message : String(err));
 			return c.json({
@@ -3613,12 +3733,75 @@ async function initWebUI(desiredPort = 5099, oneBotManager, hookManager) {
 				message: "密码修改失败"
 			}, 400);
 		}
-		sessionTokens.clear();
-		log.info("password updated; all sessions invalidated");
+		for (const [storedToken, info] of sessionTokens) if (info.username === username) sessionTokens.delete(storedToken);
+		log.info("password updated; sessions of account %s invalidated", username);
 		return c.json({
 			success: true,
 			requireRelogin: true
 		});
+	});
+	app.get("/api/auth/users", (c) => {
+		const token = c.get("sessionToken");
+		const session = token ? sessionTokens.get(token) : void 0;
+		if (session?.role !== "admin") return c.json({ success: false, message: "仅管理员可查看账号" }, 403);
+		return c.json({ success: true, list: auth.listUsers() });
+	});
+	app.post("/api/auth/users", async (c) => {
+		const token = c.get("sessionToken");
+		const session = token ? sessionTokens.get(token) : void 0;
+		if (session?.role !== "admin") return c.json({ success: false, message: "仅管理员可创建账号" }, 403);
+		let body;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.json({ success: false, message: "请求格式错误" }, 400);
+		}
+		const username = typeof body.username === "string" ? body.username : "";
+		const password = typeof body.password === "string" ? body.password : "";
+		const role = body.role === "operator" ? "operator" : "admin";
+		try {
+			const created = auth.createUser(username, password, role);
+			return c.json({ success: true, user: created, message: `账号 ${created.username} 已创建，首次登录后需修改密码` });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn("create user failed: %s", message);
+			return c.json({ success: false, message }, 400);
+		}
+	});
+	app.post("/api/auth/users/:username/reset-password", async (c) => {
+		const token = c.get("sessionToken");
+		const session = token ? sessionTokens.get(token) : void 0;
+		if (session?.role !== "admin") return c.json({ success: false, message: "仅管理员可重置密码" }, 403);
+		let body;
+		try {
+			body = await c.req.json();
+		} catch {
+			return c.json({ success: false, message: "请求格式错误" }, 400);
+		}
+		const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
+		try {
+			auth.resetPassword(c.req.param("username"), newPassword, { mustChangePassword: true });
+			for (const [storedToken, info] of sessionTokens) if (info.username === normalizeAccountName(c.req.param("username"))) sessionTokens.delete(storedToken);
+			return c.json({ success: true, message: "密码已重置，该账号下次登录后需修改密码" });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			log.warn("reset password failed: %s", message);
+			return c.json({ success: false, message }, 400);
+		}
+	});
+	app.delete("/api/auth/users/:username", (c) => {
+		const token = c.get("sessionToken");
+		const session = token ? sessionTokens.get(token) : void 0;
+		if (session?.role !== "admin") return c.json({ success: false, message: "仅管理员可删除账号" }, 403);
+		try {
+			const username = normalizeAccountName(c.req.param("username"));
+			auth.deleteUser(username, session.username);
+			for (const [storedToken, info] of sessionTokens) if (info.username === username) sessionTokens.delete(storedToken);
+			return c.json({ success: true, message: "账号已删除" });
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			return c.json({ success: false, message }, 400);
+		}
 	});
 	app.get("/avatar/:uin", async (c) => {
 		const uin = c.req.param("uin");

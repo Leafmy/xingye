@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Xingye Tauri Build
 echo ========================================
 echo   Xingye Tauri Build
@@ -7,7 +7,7 @@ echo ========================================
 echo.
 
 echo [1/3] Building frontend...
-cd /d "%~dp0source\panel-frontend"
+cd /d "%~dp0..\src\panel-frontend"
 call npm run build
 if errorlevel 1 (
     echo Frontend build failed!
@@ -17,7 +17,7 @@ if errorlevel 1 (
 
 echo.
 echo [2/3] Building Tauri app...
-cd /d "%~dp0source"
+cd /d "%~dp0..\src"
 call npx tauri build
 if errorlevel 1 (
     echo Tauri build failed!
@@ -27,7 +27,7 @@ if errorlevel 1 (
 
 echo.
 echo [3/3] Copying exe to project root...
-copy /y "%~dp0source\src-tauri\target\release\xingye.exe" "%~dp0xingye.exe" >nul
+copy /y "%~dp0..\src\src-tauri\target\release\xingye.exe" "%~dp0..\xingye.exe" >nul
 if errorlevel 1 (
     echo Copy failed (is xingye.exe running?)!
     pause
@@ -38,7 +38,7 @@ echo.
 echo ========================================
 echo   Build complete!
 echo   App:     xingye.exe (project root)
-echo   Bundle:  source\src-tauri\target\release\bundle\
+echo   Bundle:  src\src-tauri\target\release\bundle\
 echo ========================================
 echo.
 pause

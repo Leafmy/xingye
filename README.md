@@ -1,6 +1,6 @@
 <div align="center">
 
-![星野 Xingye](source/panel-frontend/public/xingye-logo.png)
+![星野 Xingye](src/panel-frontend/public/xingye-logo.png)
 
 # 星野 Xingye
 
@@ -66,7 +66,7 @@ build-tauri.bat
 ```
 
 要求：Node.js 18+、Rust (MSVC)、WebView2（Win11 自带）。  
-开发模式（热重载）用 `dev-tauri.bat`。完整说明见 [source/docs/DEVELOPMENT.md](source/docs/DEVELOPMENT.md)。
+开发模式（热重载）用 `scripts/dev.bat`。完整说明见 [src/docs/DEVELOPMENT.md](src/docs/DEVELOPMENT.md)。
 
 ## 🧩 功能面板
 
@@ -92,7 +92,7 @@ build-tauri.bat
 xingye.exe          ← 主程序（构建产物，根目录即运行目录）
 app/                ← 运行资源（后端产物 + 面板）
 SnowLuma/           ← QQ 协议引擎
-source/             ← 全部开发源码
+src/             ← 全部开发源码
 ├── src-tauri/      #   Tauri 壳 (Rust)
 ├── panel-frontend/ #   管理面板 (Vue 3)
 ├── bot-backend/    #   业务后端 (TypeScript)
@@ -117,3 +117,4 @@ source/             ← 全部开发源码
 **星野 Xingye** · Made with ❤️ and Tauri
 
 </div>
+

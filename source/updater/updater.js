@@ -47,11 +47,48 @@ class IncrementalUpdater {
   constructor(options = {}) {
     this.appDir = path.resolve(options.appDir);
     this.githubRepo = options.githubRepo || process.env.XINGYE_GITHUB_REPO || '';
+    this.giteeRepo = options.giteeRepo || process.env.XINGYE_GITEE_REPO || '';
     this.manifestPath = path.join(this.appDir, 'manifest.json');
     this.tempDir = path.join(this.appDir, '..', '.update-temp');
-    if (!this.githubRepo || !/^[^/]+\/[^/]+$/.test(this.githubRepo)) {
-      throw new Error('XINGYE_GITHUB_REPO must be set to owner/repo');
+    if (!this.githubRepo && !this.giteeRepo) {
+      throw new Error('XINGYE_GITHUB_REPO / XINGYE_GITEE_REPO must be set to owner/repo');
     }
+  }
+
+  // ============ 镜像选择：优先 GitHub，网络失败自动回退 Gitee ============
+  get preferredRepo() {
+    return this.giteeRepo && !this.githubRepo ? this.giteeRepo : this.githubRepo;
+  }
+
+  releaseApiUrl(repo) {
+    if (/^gitee:/i.test(repo)) return `https://gitee.com/api/v5/repos/${repo.replace(/^gitee:/i, '')}/releases/latest`;
+    return `https://api.github.com/repos/${repo}/releases/latest`;
+  }
+
+  repoPageUrl(repo, tag) {
+    if (/^gitee:/i.test(repo)) {
+      return `https://gitee.com/${repo.replace(/^gitee:/i, '')}/releases/download/${tag}/`;
+    }
+    return `https://github.com/${repo}/releases/download/${tag}/`;
+  }
+
+  async getLatestRelease() {
+    const repos = [this.githubRepo, this.giteeRepo].filter(Boolean);
+    let lastError = null;
+    for (const repo of repos) {
+      try {
+        const raw = await this.request(this.releaseApiUrl(repo));
+        const data = JSON.parse(raw);
+        // Gitee 返回 tag_name 也存在；统一剥离 v 前缀
+        data.tag_name = String(data.tag_name || '').replace(/^v/, '');
+        data._repo = repo; // 记录来源镜像，供下载走对应站
+        return data;
+      } catch (error) {
+        lastError = error;
+        console.error(`[Xingye Updater] release check failed on ${repo}: ${error.message}`);
+      }
+    }
+    throw lastError || new Error('No release source configured');
   }
 
   request(url, redirects = 0) {
@@ -79,10 +116,6 @@ class IncrementalUpdater {
       });
       request.on('error', reject);
     });
-  }
-
-  async getLatestRelease() {
-    return JSON.parse(await this.request(`https://api.github.com/repos/${this.githubRepo}/releases/latest`));
   }
 
   async downloadFile(url, destPath) {
@@ -118,6 +151,16 @@ class IncrementalUpdater {
     return (release.assets || []).find(asset => predicate(asset.name));
   }
 
+  /** 统一资产下载地址：GitHub 用 browser_download_url；Gitee 的附件接口需拼 /releases/download/{tag}/{name} */
+  assetDownloadUrl(release, asset) {
+    if (!asset) return null;
+    if (asset.browser_download_url) return asset.browser_download_url;
+    const repo = release._repo || this.preferredRepo;
+    const name = encodeURIComponent(asset.name || asset.attachment || '');
+    if (!name) return null;
+    return `${this.repoPageUrl(repo, release.tag_name)}${name}`;
+  }
+
   async checkForUpdates() {
     const localManifest = this.readLocalManifest();
     const currentRelease = localManifest?.release || this.releaseFromManifest(localManifest);
@@ -137,21 +180,22 @@ class IncrementalUpdater {
       currentRelease,
       latestRelease,
       latestVersion: latestRelease,
-      checksumsUrl: checksums?.browser_download_url || null
+      source: release._repo || this.preferredRepo,
+      checksumsUrl: this.assetDownloadUrl(release, checksums)
     };
 
     if (patchJson && patchZip) {
       result.type = 'patch';
       result.patchInfo = {
-        manifestUrl: patchJson.browser_download_url,
-        patchUrl: patchZip.browser_download_url,
-        checksumsUrl: checksums?.browser_download_url || null,
+        manifestUrl: this.assetDownloadUrl(release, patchJson),
+        patchUrl: this.assetDownloadUrl(release, patchZip),
+        checksumsUrl: this.assetDownloadUrl(release, checksums),
         fromRelease: currentRelease,
         toRelease: latestRelease
       };
     }
     if (fullZip) {
-      result.fullUrl = fullZip.browser_download_url;
+      result.fullUrl = this.assetDownloadUrl(release, fullZip);
       if (!result.patchInfo) result.type = 'full';
     }
     if (!result.patchInfo && !result.fullUrl) {

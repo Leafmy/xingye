@@ -21,6 +21,7 @@
         "center": true,
         "decorations": false,
         "transparent": false,
+        "backgroundColor": "#f3f3f3",
         "resizable": true,
         "fullscreen": false
       }
@@ -41,30 +42,37 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../../app/bot-backend/dist/**/*",
-      "../../app/bot-backend/node_modules/**/*",
-      "../../app/bot-backend/package.json",
-      "../../app/panel-frontend/dist/**/*",
-      "../../app/updater/**/*",
-      "../../app/version.json",
-      "../../app/manifest.json",
-      "../../SnowLuma/index.mjs",
-      "../../SnowLuma/*.js",
-      "../../SnowLuma/package.json",
-      "../../SnowLuma/package-lock.json",
-      "../../SnowLuma/launcher.bat",
-      "../../SnowLuma/client/**/*",
-      "../../SnowLuma/native/**/*",
-      "../../SnowLuma/config/**/*",
-      "../../BBDown/**/*"
+      "../../vendor/node/**/*",
+      "../../out/app/bot-backend/dist/**/*",
+      "../../out/app/bot-backend/node_modules/**/*",
+      "../../out/app/bot-backend/package.json",
+      "../../out/app/panel-frontend/dist/**/*",
+      "../../out/app/updater/**/*",
+      "../../out/app/version.json",
+      "../../out/app/manifest.json",
+      "../../vendor/SnowLuma/index.mjs",
+      "../../vendor/SnowLuma/*.js",
+      "../../vendor/SnowLuma/package.json",
+      "../../vendor/SnowLuma/package-lock.json",
+      "../../vendor/SnowLuma/launcher.bat",
+      "../../vendor/SnowLuma/client/**/*",
+      "../../vendor/SnowLuma/native/**/*",
+  
+      "../../vendor/BBDown/**/*"
     ]
   },
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU5MEQ0QzNEMEY0RTk0QgpSV1JMNmZUUXc5U1FCZGRLWElqUmlENUowQWZVNHdtcmswWVBhd25zaGd4TFg2UjFPcjlaUzhQWgo=",
       "endpoints": [
-        "https://github.com/Leafmy/xingye/releases/latest/download/latest.json"
+        "https://github.com/Leafmy/xingye/releases/latest/download/latest.json",
+        "https://gitee.com/leaf-my/xingye/releases/latest/download/latest.json"
       ]
     }
   }
 }
+
+
+
+
+

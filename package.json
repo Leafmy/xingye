@@ -3,15 +3,17 @@
   "version": "0.6.0",
   "description": "星野 Xingye Bot - QQ 智能助手桌面应用",
   "scripts": {
-    "build:backend": "cd source/bot-backend && npm run build",
-    "build:frontend": "cd source/panel-frontend && npm run build",
+    "build:backend": "cd src/bot-backend && npm run build",
+    "build:frontend": "cd src/panel-frontend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "build:patch": "node source/scripts/build.js --patch",
-    "build:full": "node source/scripts/build.js --full",
-    "build:release": "node source/scripts/build.js --release",
-    "release": "node source/scripts/release.js",
-    "release:dry-run": "node source/scripts/release.js --dry-run",
-    "update:check": "node source/updater/server-update.js check",
-    "update:apply": "node source/updater/server-update.js apply"
+    "build:patch": "node src/scripts/build.js --patch",
+    "build:full": "node src/scripts/build.js --full",
+    "build:release": "node src/scripts/build.js --release",
+    "release": "node src/scripts/release.js",
+    "release:dry-run": "node src/scripts/release.js --dry-run",
+    "update:check": "node src/updater/server-update.js check",
+    "update:apply": "node src/updater/server-update.js apply",
+    "pm2:start": "pm2 start config/ecosystem.config.cjs",
+    "pm2:stop": "pm2 delete xingye-snowluma xingye-backend"
   }
 }

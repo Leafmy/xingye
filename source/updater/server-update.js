@@ -6,7 +6,9 @@ const IncrementalUpdater = require('./updater');
 
 const appDir = path.resolve(__dirname, '..');
 const githubRepo = process.env.XINGYE_GITHUB_REPO || readRepoFromVersion();
-const pm2Services = (process.env.XINGYE_PM2_SERVICES || 'xingye-snowluma,xingye-backend,xingye-frontend,xingye-gaokao')
+const giteeRepo = process.env.XINGYE_GITEE_REPO || '';
+// 高考志愿服务已删除（xingye-gaokao 不再存在），仅保留现有两项
+const pm2Services = (process.env.XINGYE_PM2_SERVICES || 'xingye-snowluma,xingye-backend')
   .split(',').map(value => value.trim()).filter(Boolean);
 
 function readRepoFromVersion() {
@@ -19,7 +21,7 @@ function readRepoFromVersion() {
 }
 
 function updater() {
-  return new IncrementalUpdater({ appDir, githubRepo });
+  return new IncrementalUpdater({ appDir, githubRepo, giteeRepo });
 }
 
 function runPm2(args) {

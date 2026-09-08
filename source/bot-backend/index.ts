@@ -59,7 +59,11 @@ function getGithubRepo(): string {
 
 function createUpdater(): any {
   const Updater = require(path.join(APP_ROOT, 'updater', 'updater.js'));
-  return new Updater({ appDir: APP_ROOT, githubRepo: getGithubRepo() });
+  return new Updater({
+    appDir: APP_ROOT,
+    githubRepo: getGithubRepo(),
+    giteeRepo: process.env.XINGYE_GITEE_REPO || ''
+  });
 }
 
 // ================= Dashboard WebSocket Server =================
@@ -117,6 +121,7 @@ function sendMetricsToDashboard() {
     boundUsers: playerBindings.size,
     steamSubscribers: steamSubscriptions.size,
     activeWsConnections: dashboardClients.size,
+    snowlumaOnline: botStatus.isOnline,
     timestamp: new Date().toISOString()
   };
   broadcastToDashboard({ type: 'metrics', data: metrics });
@@ -2571,75 +2576,144 @@ app.get('/api/version', (req, res) => {
 });
 
 // ================= SnowLuma WebUI 代理（面板内管理 QQ 注入，免开 :5099） =================
+// 多用户无状态设计：
+//   - 后端不保存任何 SnowLuma 密码/token（不落盘、不自动登录任何账号）；
+//   - 每个面板用户在浏览器里自行登录 SnowLuma，token 由前端持有；
+//   - 所有 /api/snowluma/* 请求通过 X-Snowluma-Token（或 Authorization Bearer）
+//     携带调用者自己的 token，后端仅透传，用户之间会话完全隔离。
 const SNOWLUMA_WEBUI = 'http://127.0.0.1:5099';
-const SNOWLUMA_AUTH_FILE = path.join(dataDir, 'snowluma_auth.json');
-let snowlumaToken = '';
-let snowlumaPassword = '';
 
-try {
-  if (fs.existsSync(SNOWLUMA_AUTH_FILE)) {
-    snowlumaPassword = JSON.parse(fs.readFileSync(SNOWLUMA_AUTH_FILE, 'utf8')).password || '';
-    if (snowlumaPassword) {
-      snowlumaLogin(snowlumaPassword).then(t => { snowlumaToken = t; console.log('[SnowLuma] 代理已自动登录'); })
-        .catch(() => console.log('[SnowLuma] 自动登录失败，请在面板重新输入密码'));
-    }
-  }
-} catch { /* ignore */ }
+/** 从请求中提取调用者的 SnowLuma token（优先自定义头，兼容 Bearer） */
+function snowlumaTokenFrom(req: any): string {
+  const headerToken = req.headers['x-snowluma-token'];
+  if (typeof headerToken === 'string' && headerToken) return headerToken;
+  const auth = req.headers['authorization'];
+  if (typeof auth === 'string' && auth.startsWith('Bearer ')) return auth.slice(7);
+  return '';
+}
 
-async function snowlumaLogin(password: string): Promise<string> {
+async function snowlumaLogin(username: string, password: string): Promise<{ token: string; username: string; role: string; mustChangePassword: boolean }> {
   const resp = await fetch(`${SNOWLUMA_WEBUI}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
     signal: AbortSignal.timeout(5000)
   });
   const data = await resp.json().catch(() => ({} as any)) as any;
-  if (!resp.ok || !data.token) throw new Error(data.message || `登录失败(${resp.status})`);
-  return data.token as string;
+  if (!resp.ok || !data.token) {
+    const err: any = new Error(data.message || `登录失败(${resp.status})`);
+    err.mustChangePassword = Boolean(data.mustChangePassword);
+    err.statusCode = resp.ok ? 502 : resp.status;
+    throw err;
+  }
+  return {
+    token: data.token as string,
+    username: String(data.username || username),
+    role: String(data.role || 'operator'),
+    mustChangePassword: Boolean(data.mustChangePassword)
+  };
 }
 
-function saveSnowlumaAuth(password: string) {
-  snowlumaPassword = password;
-  try { fs.writeFileSync(SNOWLUMA_AUTH_FILE, JSON.stringify({ password }, null, 2)); } catch {}
-}
-
-async function snowlumaFetch(pathname: string, init: RequestInit = {}, retried = false): Promise<Response> {
-  if (!snowlumaToken) throw new Error('尚未配置 SnowLuma 密码');
-  const resp = await fetch(`${SNOWLUMA_WEBUI}${pathname}`, {
+/** 以调用者的 token 请求 SnowLuma（不做任何全局缓存/自动重登） */
+async function snowlumaFetch(pathname: string, token: string, init: RequestInit = {}): Promise<Response> {
+  if (!token) {
+    const err: any = new Error('尚未登录 SnowLuma');
+    err.statusCode = 401;
+    throw err;
+  }
+  return fetch(`${SNOWLUMA_WEBUI}${pathname}`, {
     ...init,
-    headers: { ...(init.headers || {}), Authorization: `Bearer ${snowlumaToken}` },
+    headers: { ...(init.headers || {}), Authorization: `Bearer ${token}` },
     signal: init.signal ?? AbortSignal.timeout(10000)
   });
-  if (resp.status === 401 && !retried && snowlumaPassword) {
-    snowlumaToken = await snowlumaLogin(snowlumaPassword); // token 过期自动重登一次
-    return snowlumaFetch(pathname, init, true);
-  }
-  return resp;
 }
 
-app.get('/api/snowluma/auth/state', (req, res) => {
-  res.json({ success: true, configured: Boolean(snowlumaPassword || snowlumaToken) });
-});
+/**
+ * 读取上游响应并保证返回 JSON：
+ * SnowLuma 的 SPA 回退会把未匹配路径渲染成 index.html（text/html），
+ * 直接 resp.json() 会抛 "Unexpected token '<'"；此处统一拦截转为可读错误。
+ */
+async function snowlumaJson(resp: Response): Promise<any> {
+  const contentType = resp.headers.get('content-type') || '';
+  const text = await resp.text();
+  if (!contentType.includes('application/json')) {
+    const head = text.slice(0, 80).replace(/\s+/g, ' ');
+    throw new Error(`SnowLuma 返回非 JSON 响应（HTTP ${resp.status}，${contentType || '无 Content-Type'}）: ${head}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`SnowLuma 返回了无法解析的 JSON（HTTP ${resp.status}）: ${text.slice(0, 80)}`);
+  }
+}
 
+/** 读取未被 Express 中间件消费的原始请求体（multipart/octet-stream 等） */
+function collectRawBody(req: any): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: any) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/** 统一的代理错误响应：401 让前端回到登录页，其余转 JSON */
+function snowlumaProxyError(res: any, e: any) {
+  if (e?.statusCode === 401) {
+    res.status(401).json({ success: false, message: e.message, needLogin: true });
+    return;
+  }
+  res.json({ success: false, message: e?.message || '代理请求失败' });
+}
+
+// 登录：验证密码并把 token 交还给调用者保管（后端不落盘、不共享）
 app.post('/api/snowluma/auth', async (req, res) => {
-  const { password } = req.body || {};
+  const { username, password } = req.body || {};
+  const name = (typeof username === 'string' && username.trim()) ? username.trim().toLowerCase() : 'admin';
+  if (!/^[a-z0-9][a-z0-9_.-]{0,31}$/.test(name) || name.length < 2) {
+    res.status(400).json({ success: false, message: '缺少账号或账号格式不正确（2-32 位字母数字与 ._-）' });
+    return;
+  }
   if (typeof password !== 'string' || !password) {
-    res.json({ success: false, message: '缺少密码' });
+    res.status(400).json({ success: false, message: '缺少密码' });
     return;
   }
   try {
-    snowlumaToken = await snowlumaLogin(password);
-    saveSnowlumaAuth(password);
-    res.json({ success: true });
+    const result = await snowlumaLogin(name, password);
+    res.json({ success: true, ...result });
   } catch (e: any) {
-    res.json({ success: false, message: e.message });
+    const status = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
+    res.status(status).json({ success: false, message: e.message, mustChangePassword: Boolean(e.mustChangePassword) });
   }
 });
 
-app.post('/api/snowluma/auth/clear', (req, res) => {
-  snowlumaToken = '';
-  snowlumaPassword = '';
-  try { fs.rmSync(SNOWLUMA_AUTH_FILE, { force: true }); } catch {}
+// 登录状态：用调用者的 token 探测 SnowLuma /api/auth/state
+app.get('/api/snowluma/auth/state', async (req, res) => {
+  const token = snowlumaTokenFrom(req);
+  if (!token) { res.status(401).json({ success: false, authed: false, needLogin: true }); return; }
+  try {
+    const resp = await snowlumaFetch('/api/auth/state', token);
+    if (!resp.ok) { res.status(resp.status).json({ success: false, authed: false, needLogin: true }); return; }
+    const data = await snowlumaJson(resp);
+    res.json({
+      success: true,
+      authed: true,
+      username: String(data.username || ''),
+      role: String(data.role || 'operator'),
+      mustChangePassword: Boolean(data.mustChangePassword)
+    });
+  } catch (e: any) {
+    const status = e?.statusCode === 401 ? 401 : 502;
+    res.status(status).json({ success: false, authed: false, needLogin: status === 401, message: e.message });
+  }
+});
+
+// 登出：尽力向上游注销当前 token，前端负责丢弃本地 token
+app.post('/api/snowluma/auth/clear', async (req, res) => {
+  const token = snowlumaTokenFrom(req);
+  if (token) {
+    try { await snowlumaFetch('/api/logout', token, { method: 'POST' }); } catch { /* 尽力而为 */ }
+  }
   res.json({ success: true });
 });
 
@@ -2651,94 +2725,88 @@ app.post('/api/snowluma/processes/:pid/:action', async (req, res) => {
     return;
   }
   try {
-    const resp = await snowlumaFetch(`/api/processes/${pid}/${action}`, { method: 'POST' });
-    const data = await resp.json().catch(() => ({}));
+    const resp = await snowlumaFetch(`/api/processes/${pid}/${action}`, snowlumaTokenFrom(req), { method: 'POST' });
+    const data = await snowlumaJson(resp);
     res.status(resp.status).json(data);
   } catch (e: any) {
-    res.json({ success: false, message: e.message });
+    snowlumaProxyError(res, e);
   }
 });
 
 app.get('/api/snowluma/processes/:pid/probe-login', async (req, res) => {
   try {
-    const resp = await snowlumaFetch(`/api/processes/${req.params.pid}/probe-login`);
-    const data = await resp.json().catch(() => ({}));
+    const resp = await snowlumaFetch(`/api/processes/${req.params.pid}/probe-login`, snowlumaTokenFrom(req));
+    const data = await snowlumaJson(resp);
     res.status(resp.status).json(data);
   } catch (e: any) {
-    res.json({ info: null, message: e.message });
+    snowlumaProxyError(res, e);
   }
 });
 
 // 日志级别
 app.get('/api/snowluma/logs/level', async (req, res) => {
   try {
-    const resp = await snowlumaFetch('/api/logs/level');
-    res.status(resp.status).json(await resp.json());
-  } catch (e: any) { res.status(502).json({ message: e.message }); }
+    const resp = await snowlumaFetch('/api/logs/level', snowlumaTokenFrom(req));
+    res.status(resp.status).json(await snowlumaJson(resp));
+  } catch (e: any) { snowlumaProxyError(res, e); }
 });
 app.post('/api/snowluma/logs/level', async (req, res) => {
   try {
-    const resp = await snowlumaFetch('/api/logs/level', {
+    const resp = await snowlumaFetch('/api/logs/level', snowlumaTokenFrom(req), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ level: (req.body || {}).level })
     });
-    res.status(resp.status).json(await resp.json());
-  } catch (e: any) { res.status(502).json({ message: e.message }); }
+    res.status(resp.status).json(await snowlumaJson(resp));
+  } catch (e: any) { snowlumaProxyError(res, e); }
 });
 
 // OneBot 账号配置：读取 / 保存并热重载
 app.get('/api/snowluma/config/:uin', async (req, res) => {
   if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).json({ message: 'invalid uin' }); return; }
   try {
-    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`);
-    res.status(resp.status).json(await resp.json());
-  } catch (e: any) { res.status(502).json({ message: e.message }); }
+    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`, snowlumaTokenFrom(req));
+    res.status(resp.status).json(await snowlumaJson(resp));
+  } catch (e: any) { snowlumaProxyError(res, e); }
 });
 app.post('/api/snowluma/config/:uin', async (req, res) => {
   if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).json({ message: 'invalid uin' }); return; }
   try {
-    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`, {
+    const resp = await snowlumaFetch(`/api/config/${req.params.uin}`, snowlumaTokenFrom(req), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body || {})
     });
-    res.status(resp.status).json(await resp.json());
-  } catch (e: any) { res.status(502).json({ message: e.message }); }
+    res.status(resp.status).json(await snowlumaJson(resp));
+  } catch (e: any) { snowlumaProxyError(res, e); }
 });
 
 // SnowLuma 自更新检查
 app.get('/api/snowluma/update/check', async (req, res) => {
   try {
-    const resp = await snowlumaFetch('/api/update/check');
-    res.status(resp.status).json(await resp.json());
-  } catch (e: any) { res.status(502).json({ message: e.message }); }
+    const resp = await snowlumaFetch('/api/update/check', snowlumaTokenFrom(req));
+    res.status(resp.status).json(await snowlumaJson(resp));
+  } catch (e: any) { snowlumaProxyError(res, e); }
 });
 
-// 账号头像透传
+// 账号头像透传（img 标签无法带 header，支持 ?token= 查询参数）
 app.get('/api/snowluma/avatar/:uin', async (req, res) => {
   if (!/^\d{5,12}$/.test(req.params.uin)) { res.status(400).end(); return; }
+  const token = typeof req.query.token === 'string' ? req.query.token : snowlumaTokenFrom(req);
   try {
-    const resp = await snowlumaFetch(`/avatar/${req.params.uin}`);
+    const resp = await snowlumaFetch(`/avatar/${req.params.uin}`, token);
     const buf = Buffer.from(await resp.arrayBuffer());
     res.status(resp.status).type(resp.headers.get('content-type') || 'image/png')
       .set('Cache-Control', 'public, max-age=86400').send(buf);
   } catch { res.status(502).end(); }
 });
 
-// 实时日志 SSE 透传（SnowLuma 支持 ?token= 查询认证）
+// 实时日志 SSE 透传（EventSource 无法自定义 header，token 经 ?token= 传入）
 app.get('/api/snowluma/logs/stream', async (req, res) => {
-  if (!snowlumaToken) {
-    if (snowlumaPassword) {
-      try { snowlumaToken = await snowlumaLogin(snowlumaPassword); } catch { res.status(401).json({ success: false, message: 'SnowLuma 登录失败' }); return; }
-    } else { res.status(401).json({ success: false, message: '尚未配置 SnowLuma 密码' }); return; }
-  }
+  const token = typeof req.query.token === 'string' ? req.query.token : snowlumaTokenFrom(req);
+  if (!token) { res.status(401).json({ success: false, message: '尚未登录 SnowLuma', needLogin: true }); return; }
   try {
-    let upstream = await fetch(`${SNOWLUMA_WEBUI}/api/logs/stream?token=${snowlumaToken}`);
-    if (upstream.status === 401 && snowlumaPassword) {
-      snowlumaToken = await snowlumaLogin(snowlumaPassword);
-      upstream = await fetch(`${SNOWLUMA_WEBUI}/api/logs/stream?token=${snowlumaToken}`);
-    }
+    const upstream = await fetch(`${SNOWLUMA_WEBUI}/api/logs/stream?token=${encodeURIComponent(token)}`);
     if (!upstream.ok || !upstream.body) { res.status(upstream.status).json({ success: false, message: '上游日志流不可用' }); return; }
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
@@ -2762,23 +2830,42 @@ app.get('/api/snowluma/logs/stream', async (req, res) => {
 });
 
 
-// 通用只读转发：system/qq-list/connections/processes/logs
-const SNOWLUMA_READONLY = ['/api/system', '/api/qq-list', '/api/connections', '/api/processes', '/api/logs'];
-app.get('/api/snowluma/proxy/*splat', async (req, res) => {
+// 通用转发（无阉割）：任意路径/方法透传到 SnowLuma WebUI，
+// 鉴权完全依赖调用者携带的 SnowLuma token（上游自行校验）。
+// 与显式路由不同，这里保留原始 Content-Type / body（含 multipart 上传、
+// 二进制与任意 JSON 结构），响应原样回传，确保 SnowLuma 全部 API 可用。
+app.all('/api/snowluma/proxy/*splat', async (req, res) => {
   // 不依赖 Express 通配参数的包装差异，直接从 path 切出子路径
   const prefix = '/api/snowluma/proxy/';
   const sub = '/' + (req.path.startsWith(prefix) ? req.path.slice(prefix.length) : String(req.params.splat || ''));
-  if (!SNOWLUMA_READONLY.some(p => sub === p || sub.startsWith(p + '?') || sub.startsWith(p + '/'))) {
-    res.status(403).json({ success: false, message: '不支持的转发路径' });
-    return;
-  }
   const query = req.url.includes('?') ? '?' + req.url.split('?')[1] : '';
   try {
-    const resp = await snowlumaFetch(sub + query);
-    const data = await resp.text();
-    res.status(resp.status).type('json').send(data);
+    const headers: Record<string, string> = {};
+    const contentTypeHeader = String(req.headers['content-type'] || '');
+    let body: Buffer | string | undefined;
+    if (!['GET', 'HEAD'].includes(req.method)) {
+      if (contentTypeHeader.includes('application/json') && req.body !== undefined && req.body !== null) {
+        // express.json() 已消费并解析 JSON body
+        body = JSON.stringify(req.body);
+        headers['Content-Type'] = contentTypeHeader || 'application/json';
+      } else {
+        // 其他类型（multipart/form-data、application/octet-stream 等）取原始流
+        const raw = await collectRawBody(req);
+        if (raw.length > 0) {
+          body = raw;
+          headers['Content-Type'] = contentTypeHeader || 'application/octet-stream';
+        }
+      }
+    }
+    const init: RequestInit = { method: req.method, headers };
+    if (body !== undefined) init.body = body as any;
+    const resp = await snowlumaFetch(sub + query, snowlumaTokenFrom(req), init);
+    const buf = Buffer.from(await resp.arrayBuffer());
+    res.status(resp.status)
+      .set('Content-Type', resp.headers.get('content-type') || 'application/octet-stream')
+      .send(buf);
   } catch (e: any) {
-    res.status(502).json({ success: false, message: e.message });
+    snowlumaProxyError(res, e);
   }
 });
 
@@ -2788,6 +2875,7 @@ app.get('/api/check-update', async (req, res) => {
     const result = await createUpdater().checkForUpdates();
     res.json({ success: true, ...result });
   } catch (error: any) {
+    // 明确返回 JSON 错误信息（而非让前端解析到 HTML），便于面板展示
     res.json({ success: false, hasUpdate: false, error: error.message });
   }
 });
@@ -3074,16 +3162,28 @@ app.post('/api/shutdown', (req, res) => {
 // ================= Start Server =================
 const PORT = 3000;
 
-// Load version info
-const versionFile = path.join(APP_ROOT, 'version.json');
+// Load version info — try multiple paths for dev/production flexibility
 let APP_VERSION = '0.0.0-dev';
+const versionCandidates = [
+  path.join(APP_ROOT, 'version.json'),
+  path.join(__dirname, '..', 'version.json'),
+  path.join(__dirname, '..', '..', 'version.json'),
+];
 try {
-  if (fs.existsSync(versionFile)) {
-    const v = JSON.parse(fs.readFileSync(versionFile, 'utf8'));
-    APP_VERSION = v.version || '0.0.0-dev';
-    console.log(`[版本] ${APP_VERSION}`);
+  for (const vf of versionCandidates) {
+    if (fs.existsSync(vf)) {
+      const v = JSON.parse(fs.readFileSync(vf, 'utf8'));
+      const ver = v.version || '0.0.0-dev';
+      if (ver !== '0.0.0-dev' && ver) {
+        APP_VERSION = ver;
+        console.log(`[版本] ${APP_VERSION} (from ${vf})`);
+        break;
+      }
+    }
   }
+  if (APP_VERSION === '0.0.0-dev') console.log('[版本] 使用默认版本号', APP_VERSION);
 } catch (e) { /* ignore */ }
+const versionFile = versionCandidates[0] || path.join(APP_ROOT, 'version.json');
 
 // Load persisted data
 loadBindings();
@@ -3128,6 +3228,7 @@ wss.on('connection', (ws: WebSocket) => {
       boundUsers: playerBindings.size,
       steamSubscribers: steamSubscriptions.size,
       activeWsConnections: dashboardClients.size,
+      snowlumaOnline: botStatus.isOnline,
       timestamp: new Date().toISOString()
     }
   }));
@@ -3317,3 +3418,4 @@ process.on('SIGTERM', async () => {
   await GenshinGuide.shutdown();
   process.exit(0);
 });
+
