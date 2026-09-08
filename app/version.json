@@ -1,0 +1,11 @@
+{
+  "version": "0.6.0",
+  "build": 1,
+  "release": "0.6.0",
+  "githubRepo": "Leafmy/xingye",
+  "major": 0,
+  "minor": 6,
+  "patch": 0,
+  "preRelease": "",
+  "description": "星野 Xingye Bot - Tauri 桌面版，BakaXL 风格玻璃 UI，移除高考志愿与旧 Electron 壳"
+}

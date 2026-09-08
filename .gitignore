@@ -1,62 +1,45 @@
-# Local credentials and runtime state
-.env
-.env.*
-!.env.example
-**/.env
-**/.env.*
-!**/.env.example
-**/data/
-**/logs/
-**/config/
-**/*.db
-**/*.db-wal
-**/*.db-shm
-.service-pids
+# ============================================================
+# 星野 Xingye · 运行时目录版本控制规则
+# 本目录是「绿色运行版」App 文件夹：只跟踪体积小、需要审阅的
+# 脚本与配置；运行时依赖、二进制、数据与日志一律不入库。
+# ============================================================
 
-# Dependencies and generated output
-**/node_modules/
+# ---------- 运行时依赖与二进制（体积大，不入库） ----------
+/node/
+/app/bot-backend/node_modules/
+/app/bot-backend/BBDown/
+/SnowLuma/native/
+/xingye.exe
+**/*.exe
+
+# ---------- 构建产物（面板/后端编译结果） ----------
+/app/bot-backend/dist/
+/app/panel-frontend/dist/
 **/dist/
-**/.vite/
-app/bot-backend/logs/
-app/bot-backend/dist/data/
-app/
-release/
-.git-work/
+
+# ---------- 运行期数据与日志 ----------
+/app/data/
+/app/bot-backend/logs/
+/SnowLuma/logs/
+/SnowLuma/config/
+/temp_videos/
+**/temp_videos/
+*.log
 .update-temp/
 .update-backup/
-**/.miao-temp/
-**/.liangshi-temp/
 
-# Local/editor files
-.idea/
+# ---------- 本地/编辑器 ----------
 .vscode/
+.idea/
 .trae/
-.mimocode/
 *.user
 *.suo
+Thumbs.db
+desktop.ini
 
-# Rust/Tauri build artifacts (several GB)
-source/src-tauri/target/
-source/src-tauri/gen/
-
-# Downloadable datasets (init-miao-data / init-liangshi-data fetch these)
-source/bot-backend/genshin-guide/miao-data/
-source/bot-backend/genshin-guide/liangshi-data/
-source/bot-backend/.miao-temp/
-
-# Bundled native modules and external binaries
-SnowLuma/native/
-BBDown/*.exe
-/node/
-
-# Root runtime binary (copied from src-tauri/target/release after build)
-/xingye.exe
-
-# Distributions and workbuddy workspace state
-*.tar.gz
-.workbuddy/
-.workbuddy-ai/
-
-# Unrelated local media and scratch files
-IMG_20260608_160823..jpg
-nul
+# ---------- 敏感配置 ----------
+.env
+.env.*
+!*.env.example
+**/.env
+**/.env.*
