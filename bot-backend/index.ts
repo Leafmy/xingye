@@ -2662,7 +2662,9 @@ app.post('/api/snowluma/processes/:pid/:action', async (req, res) => {
 // 通用只读转发：system/qq-list/connections/processes/logs
 const SNOWLUMA_READONLY = ['/api/system', '/api/qq-list', '/api/connections', '/api/processes', '/api/logs'];
 app.get('/api/snowluma/proxy/*splat', async (req, res) => {
-  const sub = '/' + String(req.params.splat || '');
+  // 不依赖 Express 通配参数的包装差异，直接从 path 切出子路径
+  const prefix = '/api/snowluma/proxy/';
+  const sub = '/' + (req.path.startsWith(prefix) ? req.path.slice(prefix.length) : String(req.params.splat || ''));
   if (!SNOWLUMA_READONLY.some(p => sub === p || sub.startsWith(p + '?') || sub.startsWith(p + '/'))) {
     res.status(403).json({ success: false, message: '不支持的转发路径' });
     return;
