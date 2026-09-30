@@ -1,0 +1,13 @@
+# 开发源码目录的忽略规则（与历史版本一致）
+# 构建产物与依赖体积巨大，不应进入版本库。
+
+# 面板前端（另有 panel-frontend/.gitignore 覆盖 node_modules / dist）
+panel-frontend/node_modules/
+panel-frontend/dist/
+
+# Tauri 壳：cargo 产物与生成代码
+src-tauri/target/
+src-tauri/gen/
+
+# 已退役的 macOS 液态玻璃主题存档（内含整棵源码快照，仅本地留档）
+panel-frontend/_retired-macos-theme/

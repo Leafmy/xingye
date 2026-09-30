@@ -1,0 +1,224 @@
+/* ============================================================
+   原神角色攻略图 — 样式表
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  width: 800px;
+}
+
+.guide-card {
+  width: 800px;
+  background: linear-gradient(135deg, #16213e 0%, #0f3460 100%);
+  border-radius: 16px;
+  overflow: hidden;
+  padding-bottom: 16px;
+}
+
+/* ---- 角色头部 ---- */
+
+.char-header {
+  background: linear-gradient(135deg, #533483 0%, #0f3460 100%);
+  padding: 24px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 2px solid rgba(255,255,255,0.1);
+}
+
+.char-name {
+  font-size: 36px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+
+.char-subtitle {
+  font-size: 14px;
+  color: rgba(255,255,255,0.6);
+  margin-top: 4px;
+}
+
+.char-meta {
+  display: flex;
+  gap: 8px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+
+.badge-star { background: rgba(255,200,0,0.3); color: #ffd700; }
+.badge-elem { background: rgba(0,200,255,0.3); color: #00ccff; }
+.badge-weapon { background: rgba(255,100,100,0.3); color: #ff8888; }
+
+/* ---- 通用区块 ---- */
+
+.section {
+  padding: 16px 32px;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+/* ---- 属性区块 ---- */
+
+.attr-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.attr-item {
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+
+.attr-label {
+  display: block;
+  font-size: 12px;
+  color: rgba(255,255,255,0.5);
+  margin-bottom: 4px;
+}
+
+.attr-value {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+/* ---- 推荐搭配 ---- */
+
+.build-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.build-col h3 {
+  font-size: 14px;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 8px;
+}
+
+.equip-list {
+  list-style: none;
+}
+
+.equip-list li {
+  padding: 6px 12px;
+  margin-bottom: 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 13px;
+  color: #ccc;
+  border-left: 3px solid #533483;
+}
+
+/* ---- 权重条 ---- */
+
+.weight-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weight-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.weight-label {
+  width: 56px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.weight-track {
+  flex: 1;
+  height: 16px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.weight-fill {
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.3s ease;
+  min-width: 2px;
+}
+
+.weight-value {
+  width: 30px;
+  font-size: 12px;
+  color: rgba(255,255,255,0.6);
+  text-align: left;
+  flex-shrink: 0;
+}
+
+/* ---- 评分区块 ---- */
+
+.score-overview {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.score-grade {
+  font-size: 48px;
+  font-weight: 900;
+  background: linear-gradient(135deg, #ffd700, #ff8800);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: none;
+}
+
+.score-number {
+  font-size: 24px;
+  color: rgba(255,255,255,0.8);
+}
+
+.score-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ---- 底部 ---- */
+
+.footer {
+  text-align: center;
+  padding: 12px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.3);
+  border-top: 1px solid rgba(255,255,255,0.05);
+}

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>星野控制台</title>
+    <script>
+      // 尽早应用用户选择的明暗主题，避免启动页与主界面切换时闪烁
+      try {
+        const saved = localStorage.getItem('xingye-theme')
+        const dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+        document.documentElement.classList.toggle('dark', dark)
+      } catch { /* 忽略：无 localStorage 时保持浅色 */ }
+    </script>
+    <style>
+
+      /* ========== 启动页：纯内联样式，HTML 解析后立即渲染，覆盖 JS/Vue 资源加载阶段的白屏 ========== */
+      :root { color-scheme: light dark; }
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body {
+        background-color: #eef1f6;
+        background-image:
+          radial-gradient(120% 82% at 50% -12%, rgba(0, 125, 255, 0.10) 0%, transparent 62%),
+          radial-gradient(88% 70% at 100% 104%, rgba(142, 123, 255, 0.10) 0%, transparent 64%),
+          radial-gradient(88% 70% at 0% 104%, rgba(0, 196, 212, 0.09) 0%, transparent 64%),
+          linear-gradient(180deg, #f8fafd 0%, #eef1f6 46%, #e6eaf2 100%);
+        background-attachment: fixed;
+      }
+      html.dark body {
+        background-color: #0b0b0d;
+        background-image:
+          radial-gradient(120% 82% at 50% -12%, rgba(49, 122, 247, 0.24) 0%, transparent 62%),
+          radial-gradient(88% 70% at 100% 104%, rgba(142, 123, 255, 0.16) 0%, transparent 64%),
+          radial-gradient(88% 70% at 0% 104%, rgba(0, 196, 212, 0.10) 0%, transparent 64%),
+          linear-gradient(180deg, #0c0c0e 0%, #101216 52%, #090b0f 100%);
+      }
+      #splash {
+        position: fixed; inset: 0; z-index: 99999;
+        display: flex; align-items: center; justify-content: center;
+        font-family: "HarmonyOS Sans SC", "HarmonyOS Sans", "Segoe UI Variable Text",
+          "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+        user-select: none; cursor: default;
+        transition: opacity 0.45s cubic-bezier(0.2, 0, 0.2, 1);
+      }
+      #splash.splash-out { opacity: 0; pointer-events: none; }
+      .splash-card {
+        display: flex; flex-direction: column; align-items: center; gap: 14px;
+        padding: 32px 46px 28px;
+        border-radius: 28px;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(255, 255, 255, 0.66);
+        box-shadow:
+          0 1px 2px rgba(24, 36, 49, 0.04),
+          0 6px 16px -6px rgba(24, 36, 49, 0.10),
+          0 24px 56px -18px rgba(24, 36, 49, 0.20);
+        -webkit-backdrop-filter: blur(30px) saturate(180%);
+        backdrop-filter: blur(30px) saturate(180%);
+        animation: splashRise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      html.dark .splash-card {
+        background: rgba(38, 38, 40, 0.72);
+        border-color: rgba(255, 255, 255, 0.10);
+        box-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.30),
+          0 24px 56px -18px rgba(0, 0, 0, 0.66);
+      }
+      .splash-logo {
+        width: 64px; height: 64px; border-radius: 24%;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 10px 24px -10px rgba(24, 36, 49, 0.30);
+      }
+      .splash-name { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: #182431; }
+      html.dark .splash-name { color: rgba(255, 255, 255, 0.92); }
+      .splash-sub { font-size: 11.5px; color: #66707a; margin-top: -8px; }
+      html.dark .splash-sub { color: rgba(255, 255, 255, 0.60); }
+      .splash-bar { width: 156px; height: 6px; border-radius: 999px; overflow: hidden; background: rgba(24, 36, 49, 0.10); }
+      html.dark .splash-bar { background: rgba(255, 255, 255, 0.12); }
+      .splash-bar::after {
+        content: ''; display: block; height: 100%; width: 42%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #007dff, #2b90ff);
+        animation: splashBar 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      }
+      @keyframes splashBar { 0% { transform: translateX(-120%); } 100% { transform: translateX(400%); } }
+      @keyframes splashRise {
+        from { opacity: 0; transform: translateY(12px) scale(0.97); }
+        to { opacity: 1; transform: none; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .splash-card { animation: none; }
+        .splash-bar::after { animation-duration: 2.4s; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="splash">
+      <div class="splash-card">
+        <img class="splash-logo" src="/xingye-logo.png" alt="星野" />
+        <div class="splash-name">星野 Xingye</div>
+        <div class="splash-sub">正在启动控制台</div>
+        <div class="splash-bar" role="progressbar" aria-label="加载中"></div>
+      </div>
+    </div>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

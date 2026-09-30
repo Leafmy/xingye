@@ -1,0 +1,100 @@
+/*!
+ * 星野 Xingye · 自定义指针（Custom Cursor）
+ * ===========================================================================
+ * 复刻自 leafmy.top 的 /custom/cursor/site-cursor.css（Win11 概念指针），
+ * 形状、尺寸、旋转角、按下缩放与触屏降级保持与站点一致，仅配色按星野主题重制：
+ *
+ *   亮色模式（html:not(.dark)）  黑边 + 白色实心   fill #fff / stroke #000
+ *   暗色模式（html.dark）        白边 + 黑色实心   fill #000 / stroke #fff
+ *
+ * 站点是彩虹流光渐变填充，这里换成单色描边体，配色跟随 html.dark 自动切换
+ * （App.vue 的明暗切换即切这个类，脚本无需感知主题）。
+ *
+ * 结构（由 custom-cursor.ts 注入）：
+ *   #custom-cursor          定位容器，只做 transform 平移（脚本写内联样式）
+ *     └ svg                 旋转 -45° + 按下缩放（与平移解耦）
+ *         └ .cursor-body    形状路径（fill / stroke 按主题着色）
+ *
+ * 与站点的差异：
+ *   · 系统指针只在脚本就绪后才隐藏（html.has-custom-cursor）——脚本异常时面板
+ *     仍保留系统指针，不会出现「没有指针」的失控状态。
+ *   · 暗色模式用极淡的白色外发光替代站点的黑色投影：黑色实心落在近黑底上，
+ *     投影看不见，外发光负责把箭头从深色卡片上「托」出来。
+ * =========================================================================== */
+
+/* 就绪后才隐藏系统指针（脚本给 html 加 has-custom-cursor） */
+html.has-custom-cursor,
+html.has-custom-cursor * {
+  cursor: none !important;
+}
+
+/* 定位容器：位置由脚本每帧写内联 transform（translate3d 走合成器，零延迟） */
+#custom-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  z-index: 99999;
+  will-change: transform;
+  transform: translate3d(-999px, -999px, 0); /* 首次移动前停在屏幕外，避免左上角闪一下 */
+  opacity: 0;
+  transition: opacity 0.14s linear;
+}
+
+/* 内层 svg：旋转 + 按下缩放（缩放放在这里，才不会被外层平移的内联样式覆盖） */
+#custom-cursor svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  transform: rotate(-45deg) scale(1);
+  transform-origin: 50% 50%;
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0.2, 1);
+  filter: drop-shadow(2px 2px 3px rgba(0, 0, 0, 0.4));
+}
+
+/* 按下：与站点一致的 0.9 缩放反馈 */
+#custom-cursor.pressing svg {
+  transform: rotate(-45deg) scale(0.9);
+}
+
+/* 形状：描边宽度与站点一致（viewBox 单位） */
+#custom-cursor .cursor-body {
+  stroke-width: 2;
+}
+
+/* ---- 亮色模式：黑边 + 白色实心 ---- */
+html:not(.dark) #custom-cursor .cursor-body {
+  fill: #ffffff;
+  stroke: #000000;
+}
+
+/* ---- 暗色模式：白边 + 黑色实心 ---- */
+html.dark #custom-cursor .cursor-body {
+  fill: #000000;
+  stroke: #ffffff;
+}
+
+html.dark #custom-cursor svg {
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.18));
+}
+
+/* 触屏 / 无精确指针设备：整体降级为系统指针（脚本侧同样不启用） */
+@media (hover: none) and (pointer: coarse) {
+  html.has-custom-cursor,
+  html.has-custom-cursor * {
+    cursor: auto !important;
+  }
+  #custom-cursor {
+    display: none !important;
+  }
+}
+
+/* 减少动效偏好：淡出与缩放不做过渡 */
+@media (prefers-reduced-motion: reduce) {
+  #custom-cursor,
+  #custom-cursor svg {
+    transition: none;
+  }
+}
