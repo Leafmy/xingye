@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { DATA_DIR, ensureDir } from '../app-paths';
 import { MiaoGuideService } from './services/MiaoGuideService';
 import { ArtifactEvaluator } from './services/ArtifactEvaluator';
 import { GuideImageGenerator } from './services/GuideImageGenerator';
@@ -29,11 +30,11 @@ const panelRenderer = new PanelRenderer();
 let initialized = false;
 let cleanupTimer: NodeJS.Timeout | null = null;
 
-/** 临时图片目录 */
-const TMP_IMG_DIR = path.join(__dirname, '..', 'data');
+/** 临时图片目录（必须可写，统一落在 app/data 下） */
+const TMP_IMG_DIR = path.join(DATA_DIR, 'gs-tmp');
 
 /** UID 绑定存储路径 */
-const BINDINGS_PATH = path.join(__dirname, '..', 'data', 'player_bindings.json');
+const BINDINGS_PATH = path.join(DATA_DIR, 'player_bindings.json');
 
 // ==================== UID 绑定系统 ====================
 
@@ -121,17 +122,25 @@ function cleanupTempImages(): void {
   } catch {}
 }
 
+/** 确保临时目录存在 */
+ensureDir(TMP_IMG_DIR);
+
 // ==================== 初始化 ====================
 
 export async function init(): Promise<void> {
   if (initialized) return;
+  initialized = true;
 
   try {
+    // 只拉取基础元数据（约 70KB）；角色图片在具体查询时按需下载
     await miaoService.init();
     await enkaService.init();
-    initialized = true;
 
-    cleanupTimer = setInterval(cleanupTempImages, 10 * 60 * 1000);
+    if (!cleanupTimer) {
+      cleanupTimer = setInterval(cleanupTempImages, 10 * 60 * 1000);
+      // 不因清理定时器阻止进程退出
+      if (typeof cleanupTimer.unref === 'function') cleanupTimer.unref();
+    }
     cleanupTempImages();
 
     console.log('[GenshinGuide] 模块初始化完成');
@@ -139,6 +148,11 @@ export async function init(): Promise<void> {
     console.error('[GenshinGuide] 模块初始化失败:', err.message);
   }
 }
+
+/** 数据未就绪时的统一提示（首次使用需要联网下载一次元数据） */
+const NOT_READY_MSG =
+  '📦 原神攻略数据尚未就绪（首次使用需要联网下载一次，约 70KB）。\n' +
+  '请确认网络可用后重新发送指令；若使用代理，可设置环境变量 XINGYE_GS_PROXY。';
 
 // ==================== 指令分发 ====================
 
@@ -150,6 +164,14 @@ export async function matchAndExecute(
   if (!initialized) await init();
 
   const lower = text.trim();
+
+  // 攻略类指令依赖 miao 元数据（首次需联网下载）；绑定类指令不依赖，先放行
+  const wantsGuide = lower.startsWith('gs ') || lower.startsWith('攻略 ') || /^(.+?)面板$/.test(lower);
+  if (wantsGuide && !miaoService.isReady()) {
+    const ready = await miaoService.ensureReady();
+    if (!ready) return NOT_READY_MSG;
+    await enkaService.ensureReady();
+  }
 
   // ========== 绑定 UID ==========
   if (lower.startsWith('绑定uid ') || lower.startsWith('绑定UID ')) {
@@ -197,13 +219,14 @@ export async function matchAndExecute(
     const charInput = text.replace(/^(gs|攻略)\s+/i, '').trim();
     if (!charInput) return '用法: gs <角色名>\n例: gs 胡桃';
 
-    const resolved = miaoService.resolveCharacterName(charInput);
-    if (!resolved) return `未找到角色「${charInput}」`;
-
-    if (resolved === '列表' || charInput === '列表') {
+    // 「列表」是列表指令而非角色名，必须在角色解析之前判定
+    if (charInput === '列表') {
       const names = miaoService.getAllCharacterNames();
       return `📋 共 ${names.length} 个角色:\n${names.join('、')}`;
     }
+
+    const resolved = miaoService.resolveCharacterName(charInput);
+    if (!resolved) return `未找到角色「${charInput}」`;
 
     const charData = await miaoService.getCharacterData(resolved);
     if (!charData) return `获取角色「${resolved}」数据失败`;

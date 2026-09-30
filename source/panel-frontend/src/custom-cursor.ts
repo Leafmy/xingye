@@ -23,6 +23,8 @@
  *      面板仍保留系统指针，不会出现「没有指针」的失控状态。
  *   5. 不做 max-width: 768px 降级：桌面端「App 设置」窗口宽 760px，按站点规则会
  *      误判为移动端而关掉指针，这里只保留触屏（coarse pointer）降级。
+ *   6. rAF 合帧。站点在 pointermove 里直接写内联 transform，一次快速划动就是
+ *      上百次样式写入；这里回调里只记录坐标，一帧最多写一次样式。
  * ---------------------------------------------------------------------------
  */
 
@@ -96,15 +98,26 @@ function start(): void {
   document.documentElement.classList.add(ENABLED_CLASS)
 
   let visible = false
+  let rafId = 0
+  let nextX = 0
+  let nextY = 0
 
-  const onPointerMove = (event: PointerEvent): void => {
-    cursor.style.transform =
-      `translate3d(${(event.clientX - HOTSPOT.x).toFixed(2)}px,` +
-      `${(event.clientY - HOTSPOT.y).toFixed(2)}px,0)`
+  /* 每帧只写一次样式。旧实现直接在 pointermove 里写内联 transform，
+   * 一次快速划动会触发上百次样式写入；现在回调只记录坐标，
+   * 由下一帧的 rAF 统一落笔。视觉上仍是 1 帧内跟随。 */
+  const paint = (): void => {
+    rafId = 0
+    cursor.style.transform = `translate3d(${nextX.toFixed(2)}px,${nextY.toFixed(2)}px,0)`
     if (!visible) {
       visible = true
       cursor.style.opacity = '1'
     }
+  }
+
+  const onPointerMove = (event: PointerEvent): void => {
+    nextX = event.clientX - HOTSPOT.x
+    nextY = event.clientY - HOTSPOT.y
+    if (!rafId) rafId = window.requestAnimationFrame(paint)
   }
 
   /* 按下 / 松开：内层 svg 缩放，外层 translate 不受影响 */
@@ -113,6 +126,11 @@ function start(): void {
 
   const hide = (): void => {
     cursor.classList.remove('pressing')
+    /* 撤掉挂起的那一帧：否则它会在淡出之后又把 opacity 拉回 1 */
+    if (rafId) {
+      window.cancelAnimationFrame(rafId)
+      rafId = 0
+    }
     if (!visible) return
     visible = false
     cursor.style.opacity = '0'

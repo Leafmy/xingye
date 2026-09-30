@@ -33,13 +33,13 @@ Xingye/
 │
 ├── app/                          运行资源（App 数据根）
 │   ├── bot-backend/              业务后端（Express + WebSocket，:3000）
-│   │   ├── dist/                 编译产物（入口 dist/index.js）
-│   │   ├── node_modules/         运行时依赖
-│   │   ├── BBDown/BBDown.exe     B 站视频下载器
+│   │   ├── dist/                 编译产物（入口 dist/index.js，约 0.3MB）
+│   │   ├── node_modules/         运行时依赖（仅运行闭包，约 10MB）
+│   │   ├── BBDown/BBDown.exe     B 站视频下载器（按需）
 │   │   └── package.json
 │   ├── panel-frontend/dist/      管理面板静态资源（由后端托管）
 │   ├── updater/                  自更新脚本
-│   ├── data/                     运行数据（绑定 / 订阅 / 群组）
+│   ├── data/                     运行数据（绑定 / 订阅 / 群组 / 下载缓存）
 │   ├── manifest.json             文件清单（增量更新）
 │   └── version.json
 │
@@ -53,6 +53,24 @@ Xingye/
     └── logs/                     引擎日志
 ```
 
+### 按需数据（不再随包分发）
+
+原神攻略所需的静态数据体积巨大（约 316MB），已从发布包中移除，改为**首次使用时下载并缓存**：
+
+| 数据 | 体积 | 触发时机 | 缓存位置 |
+| --- | --- | --- | --- |
+| miao 角色注册表 / 别名 / 词条权重 | 约 70KB | 首次发送攻略指令（`gs <角色>` / `<角色>面板`） | `app/data/cache/gs/miao/` |
+| 单个角色的数据与立绘 | 约 1.4MB/角色 | 首次查询该角色 | 同上 |
+| liangshi-calc 面板模板 / CSS / 字体 | 约数 MB | 首次生成角色面板图 | `app/data/cache/gs/liangshi/` |
+
+- 启动时**不产生任何网络请求**；不使用攻略功能则永不下载。
+- 安装到 `Program Files` 后 `app/data` 只读，缓存会自动回落到
+  `%LOCALAPPDATA%\com.xingye.bot\cache`。
+- 网络受限时可通过环境变量 `XINGYE_GS_PROXY` 指定代理
+  （未设置时依次读取 `STEAM_PROXY_URL` / `HTTPS_PROXY` / `ALL_PROXY`）。
+- 也可提前用 `source/bot-backend/genshin-guide/scripts/init-miao-data.ts` 预热缓存。
+
+
 ### 运行期自动生成的目录
 
 | 路径 | 内容 |
@@ -60,7 +78,56 @@ Xingye/
 | `app/bot-backend/logs/backend.log` | 后端日志 |
 | `SnowLuma/logs/` | 引擎日志 |
 | `app/data/` | 机器人运行数据 |
+| `app/data/cache/gs/` | 原神攻略按需下载的数据缓存（`app/data` 只读时回落到 `%LOCALAPPDATA%\com.xingye.bot\cache`） |
 | `%APPDATA%\com.xingye.bot\` | 应用设置（关闭行为 / 模块主开关） |
+
+## 🛠 体积与资源占用
+
+发布包（绿色版，`xingye.exe` + `app/` + `node/` + `SnowLuma/`）经重构后约 **134MB**，
+重构前约 **467MB**（−71%）。主要来源：
+
+| 项目 | 前 | 后 | 说明 |
+| --- | --- | --- | --- |
+| miao 攻略图库 | 138.7MB | 0 | 改为按需下载 + 缓存 |
+| `genshin-db` 依赖 | 160.9MB | 0 | 只被一段从未调用的死代码使用，已删除 |
+| Playwright（含 core） | 16.7MB | 0 | 改用系统 Edge / Chrome 的 DevTools Protocol 截图 |
+| 运行时 `node_modules` | 191.1MB | 10.1MB | 裁到运行闭包，并剔除开发依赖残留 |
+| `xingye.exe` | 17.9MB | 5.5MB | release profile 体积优化 + 去掉未用插件 + rustls 替代 native-tls |
+| 面板静态资源 | 0.9MB | 0.3MB | 移除未被引用的图片，拆分 chunk |
+| `node/node.exe` | 88.5MB | 88.5MB | 内置运行时，未改动 |
+
+运行时侧：
+
+- 面板的 7 处轮询、WebSocket 指标/日志推送、SnowLuma 日志流在窗口隐藏时暂停或缓冲，
+  恢复可见时立即补齐；长时间无交互后自动降频。
+- 攻略截图所用无头浏览器**懒启动**，空闲 3 分钟自动退出——不再像 Playwright 那样
+  在进程生命周期内常驻一个 Chromium。
+- 后端只在有面板连接时才采集并推送指标，没有连接时整段逻辑跳过。
+
+> 说明：后端**空闲**内存与 CPU 与重构前基本持平（Node/Express 自身开销占主导），
+> 本次的收益集中在磁盘体积、启动期网络依赖与「用到截图功能时的内存/进程常驻」。
+
+## 🧱 从源码构建
+
+```
+source/
+├── bot-backend/          后端 TypeScript 源码
+├── panel-frontend/       面板前端源码（Vue 3 + Vite）
+├── src-tauri/            Tauri 壳源码（Rust）
+├── scripts/
+│   ├── build-backend.ps1 后端编译（tsc --noCheck，产物 → app/bot-backend/dist）
+│   ├── build.js / release.js
+├── updater/              自更新脚本源码
+├── tests/                测试
+└── build-exe.ps1         一体化构建（前端 → Tauri → 复制 exe 到根目录）
+```
+
+- 后端：`powershell -ExecutionPolicy Bypass -File source/scripts/build-backend.ps1`
+- 全量：`powershell -ExecutionPolicy Bypass -File source/build-exe.ps1`
+  （`-SkipFrontend` 可跳过前端；需要 `pnpm`/`npm` 与 Rust 工具链）
+- `source/**/*.ps1` 一律保存为 **UTF-8 with BOM**：Windows PowerShell 5.1 会按 ANSI
+  解码无 BOM 的中文内容，导致脚本语法错误。
+
 
 ## 🧩 功能面板
 
@@ -138,7 +205,9 @@ Xingye/
 
 - 目录结构与程序内的路径解析严格绑定：`xingye.exe` 同级必须保留 `app/`、`node/`、`SnowLuma/`，请勿单独移动其中某一项。
 - 移动、重命名或拷贝**整个**文件夹不会影响运行（全部为相对路径解析）。
-- 本目录只包含可运行程序与运行依赖，不含开发源码；源码历史保留在 `.git` 版本库中（`git log` / `git show` 可查）。
+- 首次使用**原神攻略**（`gs <角色名>` / `<角色名>面板`）时需要联网下载一次数据，
+  之后走本地缓存；离线环境下这些指令会提示「数据尚未就绪」，其余功能不受影响。
+- 本目录只包含可运行程序与运行依赖；开发源码在 `source/`，构建方式见上一节。
 
 ## 📜 免责声明
 

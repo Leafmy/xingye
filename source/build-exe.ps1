@@ -1,4 +1,4 @@
-<#
+﻿<#
  星野 Xingye · 桌面端 exe 构建脚本（独立发布模式）
 
  做三件事：
@@ -6,18 +6,32 @@
    2. 构建 Tauri 壳（该产物会被内嵌进 exe，见 src-tauri/tauri.conf.json 的 frontendDist）
    3. 把 exe 复制到仓库根目录（绿色发布版入口）
 
- 用法：
-   pwsh -File source/build-exe.ps1              # 全量构建
-   pwsh -File source/build-exe.ps1 -SkipFrontend # 前端已构建，只重编 Rust 壳
+ 用法（本机只安装了 Windows PowerShell 5.1，pwsh 7 未安装）：
+   powershell -ExecutionPolicy Bypass -File source/build-exe.ps1
+   powershell -ExecutionPolicy Bypass -File source/build-exe.ps1 -SkipFrontend
+
+ 编码要求（务必保留）：
+   本文件必须以 "UTF-8 with BOM" 保存。PS 5.1 对无 BOM 的 UTF-8 会按 ANSI 解码，
+   中文串尾的省略号 `…` 会吞掉后面的引号，报“字符串缺少终止符”语法错误而无法运行。
 
  关于 bundle.resources：
-   tauri.conf.json 里的 resources 供 NSIS 安装包使用。本脚本构建时用
-   TAURI_CONFIG 覆盖为空，原因有两点：
-     a) 绿色发布版把 app/ node/ SnowLuma/ 放在 exe 同级，运行时按相对路径
-        解析（Rust 侧 resource_dir() 即 exe 所在目录），无需再复制一份；
-     b) tauri-build 复制资源时会在 app/bot-backend/dist/genshin-guide/ 下
-        的中文文件名上失败（build script exit 5），导致 cargo build 中断。
-   如需产出 NSIS 安装包，请先解决上述中文文件名问题，再执行 `cargo tauri build`。
+   tauri.conf.json 里的 resources 只描述「安装包/运行目录里各文件放哪儿」。
+   现在使用映射语法（源 → 目标），把资源落到运行时真正解析的位置：
+     node/ 、app/bot-backend/{dist,node_modules,BBDown} 、app/panel-frontend/dist 、
+     app/{updater,version.json,manifest.json} 、SnowLuma/
+   这些正是 Rust 侧 resource_dir() 与 bot-backend 的 __dirname 相对路径所期望的布局
+   （见 src-tauri/src/process.rs 与 app/bot-backend/dist/index.js 的 APP_ROOT 推导）。
+
+ 历史遗留问题（已消除）：
+   a) 旧配置用数组 + `/**/*` 通配，资源会被放到 target/release/_up_/_up_/app/… 下，
+      与运行时解析路径完全对不上（装到 Program Files 后 node/、SnowLuma/、dist/ 全部找不到）；
+      改用映射语法后落点正确，`cargo build --release` 直接产出可运行目录。
+   b) 旧脚本用 $env:TAURI_CONFIG='{"bundle":{"resources":[]}}' 把 resources 置空，
+      以绕开 tauri-build 复制 app/bot-backend/dist/genshin-guide/ 下中文文件名时
+      build script 报 exit 5 的问题。该问题在当前工具链上已无法复现：
+      tauri-build 2.6.3 已完整复制 448MB / 4517 个文件（含 121 个中文名目录），exit 0；
+      最深路径 187 字符，未触及 MAX_PATH。故该 hack 已移除，构建链可重现。
+      若日后改回数组 + 通配语法又遇到 exit 5，优先怀疑目标文件被进程占用，而非文件名编码。
 #>
 
 param(
@@ -56,12 +70,12 @@ if (-not $SkipFrontend) {
 Write-Host '[2/3] 构建 Tauri 壳（Rust release）…' -ForegroundColor Cyan
 Push-Location $tauriDir
 try {
-  # 资源已在发布目录中就位；跳过 resources 复制（详见文件头说明）
-  $env:TAURI_CONFIG = '{"bundle":{"resources":[]}}'
+  # 直接在 tauri.conf.json 的 resources 生效状态下构建：
+  # 映射语法会把 node/、app/、SnowLuma/ 复制到 target/release 下的正确位置，
+  # 与发布目录（仓库根）布局一致；不再需要 TAURI_CONFIG 覆盖。
   cargo build --release
   if ($LASTEXITCODE -ne 0) { throw 'Tauri 构建失败' }
 } finally {
-  Remove-Item Env:\TAURI_CONFIG -ErrorAction SilentlyContinue
   Pop-Location
 }
 

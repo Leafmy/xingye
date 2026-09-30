@@ -41,24 +41,24 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../../node/**/*",
-      "../../app/bot-backend/dist/**/*",
-      "../../app/bot-backend/node_modules/**/*",
-      "../../app/bot-backend/package.json",
-      "../../app/bot-backend/BBDown/**/*",
-      "../../app/panel-frontend/dist/**/*",
-      "../../app/updater/**/*",
-      "../../app/version.json",
-      "../../app/manifest.json",
-      "../../SnowLuma/index.mjs",
-      "../../SnowLuma/*.js",
-      "../../SnowLuma/package.json",
-      "../../SnowLuma/package-lock.json",
-      "../../SnowLuma/launcher.bat",
-      "../../SnowLuma/client/**/*",
-      "../../SnowLuma/native/**/*"
-    ]
+    "resources": {
+      "../../node/": "node/",
+      "../../app/bot-backend/dist/": "app/bot-backend/dist/",
+      "../../app/bot-backend/node_modules/": "app/bot-backend/node_modules/",
+      "../../app/bot-backend/BBDown/": "app/bot-backend/BBDown/",
+      "../../app/bot-backend/package.json": "app/bot-backend/package.json",
+      "../../app/panel-frontend/dist/": "app/panel-frontend/dist/",
+      "../../app/updater/": "app/updater/",
+      "../../app/version.json": "app/version.json",
+      "../../app/manifest.json": "app/manifest.json",
+      "../../SnowLuma/index.mjs": "SnowLuma/index.mjs",
+      "../../SnowLuma/*.js": "SnowLuma/",
+      "../../SnowLuma/package.json": "SnowLuma/package.json",
+      "../../SnowLuma/package-lock.json": "SnowLuma/package-lock.json",
+      "../../SnowLuma/launcher.bat": "SnowLuma/launcher.bat",
+      "../../SnowLuma/client/": "SnowLuma/client/",
+      "../../SnowLuma/native/": "SnowLuma/native/"
+    }
   },
   "plugins": {
     "updater": {

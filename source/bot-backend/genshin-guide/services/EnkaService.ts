@@ -7,10 +7,14 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { GenshinDataProvider } from './GenshinDataProvider';
 import { EnkaArtifact, EnkaSubStat, EnkaCharacterShowcase, EnkaUIDData } from '../types';
 
 const ENKA_API = 'https://enka.network/api/uid/';
-const CHAR_DATA_PATH = path.join(__dirname, '..', 'miao-data', 'meta-gs', 'character', 'data.json');
+
+function charDataPath(): string {
+  return path.join(GenshinDataProvider.miaoRoot(), 'character', 'data.json');
+}
 
 // FightProp ID → statType 字符串
 const FIGHT_PROPS: Record<number, string> = {
@@ -34,19 +38,36 @@ const EQUIP_TYPE_MAP: Record<string, string> = {
 // ID → 名字映射表
 const idToName: Record<number, string> = {};
 
+/** 按需加载角色 ID → 名字映射（数据可能尚未下载） */
+function ensureNameMap(): void {
+  if (Object.keys(idToName).length > 0) return;
+  const file = charDataPath();
+  if (!fs.existsSync(file)) return;
+  try {
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const [id, meta] of Object.entries(data)) {
+      idToName[Number(id)] = (meta as any).name;
+    }
+    console.log(`[EnkaService] 加载 ${Object.keys(idToName).length} 个角色 ID 映射`);
+  } catch (err: any) {
+    console.warn(`[EnkaService] 角色 ID 映射解析失败: ${err.message}`);
+  }
+}
+
 export class EnkaService {
 
   isAvailable(): boolean { return true; }
 
   async init(): Promise<void> {
-    // 加载 ID → 名字映射
-    if (Object.keys(idToName).length === 0 && fs.existsSync(CHAR_DATA_PATH)) {
-      const data = JSON.parse(fs.readFileSync(CHAR_DATA_PATH, 'utf8'));
-      for (const [id, meta] of Object.entries(data)) {
-        idToName[Number(id)] = (meta as any).name;
-      }
-      console.log(`[EnkaService] 加载 ${Object.keys(idToName).length} 个角色 ID 映射`);
-    }
+    // 启动期只读本地缓存，不联网
+    ensureNameMap();
+  }
+
+  /** 按需就绪：首次用到攻略指令时确保角色 ID 映射已下载 */
+  async ensureReady(): Promise<void> {
+    if (Object.keys(idToName).length > 0) return;
+    await GenshinDataProvider.ensureMiaoBase();
+    ensureNameMap();
   }
 
   shutdown(): void {}
@@ -76,6 +97,7 @@ export class EnkaService {
 
   private parseAvatar(info: any): EnkaCharacterShowcase {
     const id = info.avatarId;
+    ensureNameMap();
     const charName = idToName[id] || `角色${id}`;
     const props = info.propMap || {};
 

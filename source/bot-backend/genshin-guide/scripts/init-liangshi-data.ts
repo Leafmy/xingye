@@ -13,10 +13,12 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { GS_CACHE_DIR, ensureDir } from '../../app-paths';
 
 const REPO_URL = 'https://github.com/liangshi233/liangshi-calc.git';
-const TARGET_DIR = path.join(__dirname, '..', 'liangshi-data');
-const TEMP_DIR = path.join(__dirname, '..', '.liangshi-temp');
+// 与 GenshinDataProvider 共用同一个可写缓存目录
+const TARGET_DIR = path.join(GS_CACHE_DIR, 'liangshi');
+const TEMP_DIR = path.join(GS_CACHE_DIR, '.liangshi-temp');
 
 export async function initLiangshiData(force = false): Promise<void> {
   const damageDst = path.join(TARGET_DIR, 'damage');
@@ -49,7 +51,7 @@ export async function initLiangshiData(force = false): Promise<void> {
     });
 
     // 2. 确保目标目录存在
-    fs.mkdirSync(TARGET_DIR, { recursive: true });
+    ensureDir(TARGET_DIR);
 
     // 3. 复制伤害计算模块
     const damageSrc = path.join(TEMP_DIR, 'damage');

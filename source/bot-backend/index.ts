@@ -13,6 +13,7 @@ import * as Crawler from './crawler';
 import * as ProactiveEngine from './proactive-engine';
 import { TaskManager } from './task-queue';
 import * as GenshinGuide from './genshin-guide/index';
+import { APP_ROOT, DATA_DIR } from './app-paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -41,11 +42,7 @@ const DOUBAO_DRAW_MODEL = process.env.DOUBAO_DRAW_MODEL || 'ep-20260505205937-zj
 const SNOWLUNA_WS = 'ws://127.0.0.1:3001';
 const WAKE_WORDS = ['星野'];
 
-const APP_ROOT = process.env.XINGYE_APP_DIR || (
-  fs.existsSync(path.join(__dirname, '..', 'version.json'))
-    ? path.resolve(__dirname, '..')
-    : path.resolve(__dirname, '..', '..')
-);
+// APP_ROOT / 数据目录由 app-paths.ts 统一解析（与 genshin-guide 共用同一套路径）
 
 function getGithubRepo(): string {
   if (process.env.XINGYE_GITHUB_REPO) return process.env.XINGYE_GITHUB_REPO;
@@ -88,8 +85,10 @@ function captureLog(level: string, args: any[]) {
   logHistory.push(entry);
   if (logHistory.length > MAX_LOG_HISTORY) logHistory.shift();
   
-  // Broadcast to dashboard clients
-  broadcastToDashboard({ type: 'log', data: entry });
+  // Broadcast to dashboard clients（没有面板连接时不做序列化与广播）
+  if (dashboardClients.size > 0) {
+    broadcastToDashboard({ type: 'log', data: entry });
+  }
 }
 
 console.log = (...args: any[]) => { originalLog(...args); captureLog('info', args); };
@@ -127,8 +126,13 @@ function sendMetricsToDashboard() {
   broadcastToDashboard({ type: 'metrics', data: metrics });
 }
 
-// Metrics push loop (every 2 seconds)
-setInterval(sendMetricsToDashboard, 2000);
+// Metrics push loop：只在有面板连接时推送。
+// 无连接时跳过整个采集/序列化过程（原先每 2s 无条件执行一次，长时间空跑纯属浪费）。
+const METRICS_INTERVAL_MS = 2000;
+setInterval(() => {
+  if (dashboardClients.size === 0) return;
+  sendMetricsToDashboard();
+}, METRICS_INTERVAL_MS);
 
 // Persist stats periodically (every 60 seconds)
 setInterval(() => {
@@ -555,7 +559,7 @@ function canSendMenu(groupId: number): boolean {
 }
 
 // ================= Data Persistence =================
-const dataDir = path.join(APP_ROOT, 'data');
+const dataDir = DATA_DIR;
 
 function ensureDataDir() {
   if (!fs.existsSync(dataDir)) {

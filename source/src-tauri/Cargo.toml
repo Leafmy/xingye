@@ -15,17 +15,30 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
-tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
-tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+# tokio：源码只用到 tokio::spawn（需 rt）与 tokio::time::sleep（需 time）；
+# rt-multi-thread 与 tauri 自身启用的 tokio 特性保持一致（避免依赖默认 full 特性）。
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
 anyhow = "1"
-reqwest = { version = "0.12", features = ["json"] }
+# reqwest：关闭默认特性。默认的 default-tls 会拉起 native-tls/schannel/hyper-tls；
+# 改走 rustls（tauri-plugin-updater 已带 rustls+ring，同一份实现被复用，不额外增重）。
+# 只保留实际用到的能力：json（.json() 收发）、rustls-tls（https）、system-proxy（遵循系统代理）。
+# 已去掉：default-tls（换 rustls）、charset（响应只走 .json()，JSON 恒为 UTF-8）、http2（自动回落 HTTP/1.1）。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "system-proxy"] }
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# 发布体积优化：体积优先（z）+ 全量 LTO + 单 codegen unit + 去符号 + panic=abort。
+# 代价是编译明显变慢（见 source/build-exe.ps1 顶部说明）。
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

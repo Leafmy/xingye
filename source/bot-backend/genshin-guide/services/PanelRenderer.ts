@@ -1,35 +1,43 @@
 // ============================================================
-// PanelRenderer — art-template 渲染 + Playwright 截图
+// PanelRenderer — art-template 渲染 + HtmlToImage 截图
 //
-// 使用 liangshi-calc 的 CSS/字体/背景资源
+// 使用 liangshi-calc 的 CSS/字体/背景资源（按需下载到可写缓存）
 // ============================================================
 
-import { chromium, Browser } from 'playwright';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import template from 'art-template';
 import { PanelData } from '../types';
+import { htmlToImage } from './browser-render';
+import { GenshinDataProvider } from './GenshinDataProvider';
+import { toFileUrl } from '../../app-paths';
 
-const LIANGSHI_DIR = path.join(__dirname, '..', 'liangshi-data');
-const RES_PATH = path.join(LIANGSHI_DIR, 'resources', 'common') + '/';
-const MIAO_RES_PATH = path.join(__dirname, '..', 'miao-data', 'meta-gs') + '/';
+/** liangshi-calc 资源根（按需下载缓存 / 旧布局兜底） */
+function liangshiDir(): string {
+  return GenshinDataProvider.liangshiRoot();
+}
 
-let browserInstance: Browser | null = null;
+/** 角色立绘资源根，转成 file:// URL 供浏览器加载 */
+function miaoResUrl(): string {
+  return toFileUrl(GenshinDataProvider.miaoRoot() + path.sep);
+}
 
-async function getBrowser(): Promise<Browser> {
-  if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-  }
-  return browserInstance;
+let htmlSeq = 0;
+
+/** 把待渲染的 HTML 落盘到临时文件（file:// 下相对资源才能解析） */
+function writeTempHtml(html: string): string {
+  const file = path.join(os.tmpdir(), `xingye-panel-${process.pid}-${++htmlSeq}.html`);
+  fs.writeFileSync(file, html, 'utf8');
+  return file;
 }
 
 export class PanelRenderer {
 
   /** 渲染角色面板图 */
   async renderPanel(data: PanelData): Promise<Buffer> {
+    // 面板模板/CSS/字体来自 liangshi-calc，首次使用时按需拉取
+    await GenshinDataProvider.ensureLiangshi();
     const html = this.buildPanelHTML(data);
     return await this.renderToPng(html, { width: 800, height: 1200 });
   }
@@ -47,10 +55,7 @@ export class PanelRenderer {
 
   /** 关闭浏览器 */
   async shutdown(): Promise<void> {
-    if (browserInstance) {
-      await browserInstance.close();
-      browserInstance = null;
-    }
+    await htmlToImage.shutdown();
   }
 
   // ==================== 私有方法 ====================
@@ -65,7 +70,7 @@ export class PanelRenderer {
 
     // 使用 art-template 渲染角色卡片
     const avatarCardHTML = this.renderTemplate('tpl/avatar-card.html', {
-      $data: [this.buildAvatarData(data), { _res_path: MIAO_RES_PATH, cardType: 'wide' }],
+      $data: [this.buildAvatarData(data), { _res_path: miaoResUrl(), cardType: 'wide' }],
     });
 
     // 构建完整 HTML
@@ -224,7 +229,7 @@ ${this.getPanelCSS()}
 
   /** art-template 渲染 */
   private renderTemplate(tplPath: string, data: any): string {
-    const fullPath = path.join(LIANGSHI_DIR, 'resources', 'common', tplPath);
+    const fullPath = path.join(liangshiDir(), 'resources', 'common', tplPath);
     if (!fs.existsSync(fullPath)) return '';
     try {
       return template(fullPath, data);
@@ -235,13 +240,13 @@ ${this.getPanelCSS()}
 
   /** 读取 CSS 文件 */
   private readCSS(filename: string): string {
-    const cssPath = path.join(LIANGSHI_DIR, 'resources', 'common', filename);
+    const cssPath = path.join(liangshiDir(), 'resources', 'common', filename);
     if (!fs.existsSync(cssPath)) return '';
     return fs.readFileSync(cssPath, 'utf8');
   }
 
   private readCSSFile(relPath: string): string {
-    const cssPath = path.join(LIANGSHI_DIR, 'resources', 'common', relPath);
+    const cssPath = path.join(liangshiDir(), 'resources', 'common', relPath);
     if (!fs.existsSync(cssPath)) return '';
     return fs.readFileSync(cssPath, 'utf8');
   }
@@ -348,22 +353,16 @@ body { font-family: 'Microsoft YaHei', sans-serif; background: #1a1a2e; color: #
 
   /** HTML → PNG */
   private async renderToPng(html: string, viewport: { width: number; height: number }): Promise<Buffer> {
-    const b = await getBrowser();
-    const page = await b.newPage();
+    const file = writeTempHtml(html);
     try {
-      await page.setViewportSize(viewport);
-      await page.setContent(html, { waitUntil: 'networkidle' });
-      await page.waitForTimeout(500);
-
-      const bodyHeight: number = await page.evaluate('document.body.scrollHeight');
-      const screenshot = await page.screenshot({
-        type: 'png',
-        fullPage: true,
-        clip: { x: 0, y: 0, width: viewport.width, height: Math.min(bodyHeight, 3000) },
+      return await htmlToImage.renderFile(file, {
+        width: viewport.width,
+        height: viewport.height,
+        scale: 2,
+        maxHeight: 3000,
       });
-      return Buffer.from(screenshot);
     } finally {
-      await page.close();
+      try { fs.unlinkSync(file); } catch { /* ignore */ }
     }
   }
 }

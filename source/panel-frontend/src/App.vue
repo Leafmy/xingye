@@ -188,9 +188,66 @@ async function toggleModuleEnabled() {
   moduleSwitching.value = false
 }
 
+// ================= 后台 / 空闲感知的轮询调度 =================
+// 背景：面板的定时轮询原来是一串裸 setInterval，窗口最小化 / 被其它窗口遮住后
+// 仍按原频率打后端接口，并且每次返回都会触发 Vue 重渲染。这里统一换成
+// 「不可见即暂停、恢复可见立刻补一次、长时间无交互降频」的调度器。
+const IDLE_AFTER_MS = 10 * 60 * 1000   // 超过 10 分钟没有任何输入视为空闲
+const IDLE_SCALE = 4                   // 空闲时轮询间隔放大 4 倍（常驻后台也省 CPU）
+let lastActivityAt = Date.now()
+const markActivity = () => { lastActivityAt = Date.now() }
+// 只监听低频的「真正交互」事件，pointermove 每帧都有的那种不参与
+for (const activityEvent of ['pointerdown', 'wheel', 'keydown', 'focus'] as const) {
+  window.addEventListener(activityEvent, markActivity, { passive: true })
+}
+
+interface Poller { kick: () => void; stop: () => void }
+const pollers: Poller[] = []
+
+/**
+ * 可见性 / 空闲感知的轮询：语义等价于 setInterval(fn, ms)，
+ * 但窗口不可见时完全停摆（不执行、不重排定时器），恢复可见时由
+ * handleAppVisibility 调 kick() 立刻补跑一次；长时间无交互时降频。
+ */
+function createPoll(fn: () => void, ms: number): Poller {
+  let timer: number | null = null
+  let stopped = false
+  const schedule = () => {
+    if (stopped || timer !== null) return
+    const idle = Date.now() - lastActivityAt > IDLE_AFTER_MS
+    timer = window.setTimeout(() => {
+      timer = null
+      if (stopped) return
+      // 隐藏：不跑也不重排，等 visibilitychange 唤醒
+      if (document.hidden) return
+      fn()
+      schedule()
+    }, idle ? ms * IDLE_SCALE : ms)
+  }
+  const poller: Poller = {
+    kick() {
+      if (stopped || document.hidden) return
+      if (timer !== null) { clearTimeout(timer); timer = null }
+      fn()
+      schedule()
+    },
+    stop() {
+      stopped = true
+      if (timer !== null) { clearTimeout(timer); timer = null }
+    },
+  }
+  schedule()
+  pollers.push(poller)
+  return poller
+}
+
 // ================= WebSocket =================
 let ws: WebSocket | null = null
 let reconnectDelay = 1000
+// 窗口不可见时收到的推送先缓冲，恢复可见时一次性补齐（见 handleAppVisibility）
+let pendingMetrics: Metrics | null = null
+let pendingLogs: LogEntry[] = []
+const MAX_PENDING_LOGS = 1000
 function connect() {
   // 使用服务器配置创建WebSocket
   ws = createServerWebSocket()
@@ -204,16 +261,32 @@ function connect() {
       fetchTokenStats(); fetchGroups(); fetchSysConfig(); fetchFeatures(); fetchSettingsData()
     }
   }
-  ws.onclose = () => { wsConnected.value = false; setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000) }
+  ws.onclose = () => {
+    wsConnected.value = false
+    // 不可见时不排重连：挂起的重连交给 visibilitychange 恢复时立刻发起，
+    // 避免窗口最小化后仍在后台按退避节奏反复建连
+    if (document.hidden) return
+    setTimeout(connect, reconnectDelay); reconnectDelay = Math.min(reconnectDelay * 2, 30000)
+  }
   ws.onerror = () => {}
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data)
       if (msg.type === 'history') logs.value = msg.data.slice(-500)
       else if (msg.type === 'metrics') {
-        metrics.value = msg.data
+        // metrics 驱动总览页 5 张图表重绘；后台每 2s 重绘一次纯属浪费，先缓存
+        if (document.hidden) pendingMetrics = msg.data
+        else metrics.value = msg.data
       }
-      else if (msg.type === 'log') { logs.value.push(msg.data); if (logs.value.length > 500) logs.value.shift() }
+      else if (msg.type === 'log') {
+        // 日志行会触发列表重渲染；不可见时不写响应式状态，只入缓冲区
+        if (document.hidden) {
+          pendingLogs.push(msg.data)
+          if (pendingLogs.length > MAX_PENDING_LOGS) pendingLogs.splice(0, pendingLogs.length - MAX_PENDING_LOGS)
+        } else {
+          logs.value.push(msg.data); if (logs.value.length > 500) logs.value.shift()
+        }
+      }
       else if (msg.type === 'cli_result') {
         cliResult.value = msg.data.result
         if (cliResultTimer.value) clearTimeout(cliResultTimer.value)
@@ -298,7 +371,8 @@ function startSnowStream() {
   snowEs.onerror = () => {
     // 断开后由后端自动续期 token，前端延迟重连
     snowEs?.close(); snowEs = null; snowStreamOn.value = false
-    if (snowAuthed.value === true) setTimeout(() => { if (activeTab.value === 'qqmgmt') startSnowStream() }, 3000)
+    // 不可见时不排重连：恢复可见时由 visibilitychange 重新拉起日志流
+    if (snowAuthed.value === true && !document.hidden) setTimeout(() => { if (activeTab.value === 'qqmgmt') startSnowStream() }, 3000)
   }
 }
 function stopSnowStream() {
@@ -818,6 +892,8 @@ async function doRestart() {
   let pollTimer: number | null = null
   let pollCount = 0
   const poll = () => {
+    // 窗口不可见时不打接口（也不计入 60 次上限），恢复可见后继续
+    if (document.hidden) return
     pollCount++
     serverFetch('/api/status', { signal: AbortSignal.timeout(2000) })
       .then(r => r.json())
@@ -1168,6 +1244,9 @@ function onChartMouseLeave() {
 
 // Auto-scroll to bottom when new logs arrive
 watch(() => filteredSearchLogs.value.length, async () => {
+  // 不可见时不滚：scrollTop 赋值会强制同步布局，后台做这件事没有任何收益；
+  // 恢复可见时由 handleAppVisibility 补滚到尾部
+  if (document.hidden) return
   if (autoScroll.value && logContainer.value) {
     await nextTick()
     logContainer.value.scrollTop = logContainer.value.scrollHeight
@@ -1209,10 +1288,43 @@ onMounted(() => {
   }
   window.addEventListener('focus', handleFocus)
 
+  // 窗口不可见 → 暂停后台轮询 / 日志流；恢复可见 → 立刻补齐数据。
+  // 与上面的 cursor-refresh 是两件事，单独注册以免互相影响。
+  const handleAppVisibility = () => {
+    if (document.hidden) {
+      // 暂停 SnowLuma 日志 SSE：隐藏期间推来的日志行没人看，重进页面时
+      // 会通过 refreshSnowData() 重新拉最近 80 条，不丢历史
+      stopSnowStream()
+      return
+    }
+    // 恢复可见：所有轮询立刻补跑一次
+    for (const poller of pollers) poller.kick()
+    // 补齐隐藏期间缓冲的推送
+    if (pendingMetrics) { metrics.value = pendingMetrics; pendingMetrics = null }
+    if (pendingLogs.length) {
+      logs.value.push(...pendingLogs)
+      if (logs.value.length > 500) logs.value.splice(0, logs.value.length - 500)
+      pendingLogs = []
+      // 日志列表补齐后回到尾部（隐藏期间 watch 里的滚动被跳过了）
+      nextTick(() => {
+        if (autoScroll.value && logContainer.value) {
+          logContainer.value.scrollTop = logContainer.value.scrollHeight
+        }
+      })
+    }
+    // 后台断掉的连接与日志流回到前台立刻重建
+    // （App 设置第二窗口不参与主面板的 WebSocket / 日志流）
+    if (!isAppSettingsWindow && !wsConnected.value && (!ws || ws.readyState === WebSocket.CLOSED)) connect()
+    if (activeTab.value === 'qqmgmt' && snowAuthed.value === true) startSnowStream()
+  }
+  document.addEventListener('visibilitychange', handleAppVisibility)
+
   // Cleanup on unmount
   onUnmounted(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
+    document.removeEventListener('visibilitychange', handleAppVisibility)
     window.removeEventListener('focus', handleFocus)
+    for (const poller of pollers) poller.stop()
   })
   // 版本号获取（两种窗口都需要）
   ;(async () => {
@@ -1239,21 +1351,23 @@ onMounted(() => {
   usageMonth.value = new Date().toISOString().slice(0, 7)
   connect(); fetchTokenStats(); fetchGroups(); fetchSettingsData(); fetchSysConfig(); fetchFeatures()
   fetchWhitelist(); fetchFriendRequests(); loadCloseBehavior()
-  const t1 = setInterval(fetchTokenStats, 60000)
-  const t2 = setInterval(fetchGroups, 300000)
-  const t4 = setInterval(fetchSettingsData, 120000)
-  const t5 = setInterval(fetchSysConfig, 120000)
-  const t6 = setInterval(fetchFeatures, 120000)
-  const t7 = setInterval(fetchWhitelist, 120000)
-  const t8 = setInterval(fetchFriendRequests, 60000)
-  // Sample memory every 5s
-  const t3 = setInterval(() => {
+  // 定时轮询统一走 createPoll：窗口不可见时暂停，恢复可见时立刻补一次，
+  // 长时间无交互时降频（原来的裸 setInterval 在后台窗口里会一直打接口）
+  createPoll(fetchTokenStats, 60000)
+  createPoll(fetchGroups, 300000)
+  createPoll(fetchSettingsData, 120000)
+  createPoll(fetchSysConfig, 120000)
+  createPoll(fetchFeatures, 120000)
+  createPoll(fetchWhitelist, 120000)
+  createPoll(fetchFriendRequests, 60000)
+  // Sample memory every 5s（只喂总览图表的历史曲线，后台采样没有意义）
+  createPoll(() => {
     if (wsConnected.value) {
       memoryHistory.value.push(metrics.value.memoryMB)
       if (memoryHistory.value.length > maxHistoryPoints) memoryHistory.value.shift()
     }
   }, 5000)
-  onUnmounted(() => { ws?.close(); if (cliResultTimer.value) clearTimeout(cliResultTimer.value); clearInterval(t1); clearInterval(t2); clearInterval(t3); clearInterval(t4); clearInterval(t5); clearInterval(t6); clearInterval(t7); clearInterval(t8) })
+  onUnmounted(() => { ws?.close(); if (cliResultTimer.value) clearTimeout(cliResultTimer.value) })
 })
 </script>
 

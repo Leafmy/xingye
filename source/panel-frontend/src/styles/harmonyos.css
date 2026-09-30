@@ -1294,3 +1294,13 @@ select option { background: var(--hos-surface); color: var(--hos-text-1); }
     transition: opacity .1s linear;
   }
 }
+
+/* 指针运动期间的平滑：由 card-light.ts 在指针移动时挂到 <html> 上
+ * （.card-light-smoothing），停止移动 220ms 后自动摘掉。
+ * 用一次类切换替代旧版「逐卡片写内联 transition」——N 张卡片 2N 次样式写
+ * 变成 1 次；语义与旧内联写法一致：该窗口内只过渡 transform，
+ * 透明度变化即时生效（不叠加 transition）。 */
+html.card-light-smoothing .card-light-blob,
+html.card-light-smoothing .card-light-edge-light {
+  transition: transform 90ms linear;
+}

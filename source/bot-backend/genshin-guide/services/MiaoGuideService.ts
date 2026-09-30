@@ -10,6 +10,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { GenshinDataProvider } from './GenshinDataProvider';
 import {
   MiaoCharacterMeta,
   MiaoCharacterData,
@@ -17,7 +18,10 @@ import {
   MiaoCalcExport,
 } from '../types';
 
-const MIAO_DATA_DIR = path.join(__dirname, '..', 'miao-data', 'meta-gs');
+/** 元数据根目录：优先随包资源，其次按需下载缓存（见 GenshinDataProvider） */
+function miaoDataDir(): string {
+  return GenshinDataProvider.miaoRoot();
+}
 
 export class MiaoGuideService {
   // ---- 内部缓存 ----
@@ -29,9 +33,43 @@ export class MiaoGuideService {
 
   // ==================== 初始化 ====================
 
-  /** 初始化: 加载所有元数据文件 */
+  /**
+   * 启动期初始化：**只读本地已有数据，不联网**。
+   * 元数据改为按需下载后，启动不再产生任何网络请求；
+   * 首次真正用到攻略指令时由 ensureReady() 拉取（约 70KB）。
+   */
   async init(): Promise<void> {
     if (this.loaded) return;
+    await this.loadFromDisk();
+  }
+
+  /**
+   * 按需就绪：确保元数据已下载并建立索引。
+   * @returns 是否可用
+   */
+  async ensureReady(): Promise<boolean> {
+    if (this.isReady()) return true;
+    await GenshinDataProvider.ensureMiaoBase();
+    this.loaded = false;
+    await this.loadFromDisk();
+    return this.isReady();
+  }
+
+  /** 数据是否已经就绪（用于给用户更准确的提示） */
+  isReady(): boolean {
+    return this.loaded && this.characterRegistry.size > 0;
+  }
+
+  /** 从磁盘加载全部元数据并建立索引 */
+  private async loadFromDisk(): Promise<void> {
+    if (!GenshinDataProvider.hasBase()) {
+      // 尚未下载过：保持未就绪状态，等指令触发 ensureReady()
+      return;
+    }
+
+    this.characterRegistry.clear();
+    this.artifactWeights.clear();
+    this.aliasMap.clear();
 
     await this.loadCharacterRegistry();
     await this.loadArtifactWeights();
@@ -39,7 +77,7 @@ export class MiaoGuideService {
 
     this.loaded = true;
     console.log(
-      `[MiaoGuide] 初始化完成: ` +
+      `[MiaoGuide] 元数据就绪: ` +
       `${this.characterRegistry.size} 个角色, ` +
       `${this.artifactWeights.size} 个评分权重, ` +
       `${this.aliasMap.size} 个别名`
@@ -75,14 +113,16 @@ export class MiaoGuideService {
     return null;
   }
 
-  /** 获取角色完整数据 (带缓存) */
+  /** 获取角色完整数据 (按需下载 + 缓存) */
   async getCharacterData(name: string): Promise<MiaoCharacterData | null> {
     if (this.characterDataCache.has(name)) {
       return this.characterDataCache.get(name)!;
     }
 
-    const charDir = path.join(MIAO_DATA_DIR, 'character', name);
-    const dataPath = path.join(charDir, 'data.json');
+    // 该角色数据可能还没下载过：先按需拉取（已缓存则立即返回）
+    await GenshinDataProvider.ensureCharacter(name);
+
+    const dataPath = path.join(miaoDataDir(), 'character', name, 'data.json');
 
     if (!fs.existsSync(dataPath)) {
       console.warn(`[MiaoGuide] 角色数据不存在: ${name}/data.json`);
@@ -108,7 +148,8 @@ export class MiaoGuideService {
 
   /** 动态导入角色的 calc.js */
   async getCalcData(charName: string): Promise<MiaoCalcExport | null> {
-    const calcPath = path.join(MIAO_DATA_DIR, 'character', charName, 'calc.js');
+    await GenshinDataProvider.ensureCharacter(charName);
+    const calcPath = path.join(miaoDataDir(), 'character', charName, 'calc.js');
     if (!fs.existsSync(calcPath)) return null;
 
     try {
@@ -131,47 +172,13 @@ export class MiaoGuideService {
     return Array.from(this.characterRegistry.values()).map(m => m.name);
   }
 
-  /** 检查数据是否已加载 */
-  isReady(): boolean {
-    return this.loaded;
-  }
-
-  /**
-   * 通过 genshin-db 获取角色图标 URL
-   * @returns { icon, card, portrait } 或 null
-   */
-  getCharacterImages(charName: string): { icon?: string; card?: string; portrait?: string } | null {
-    try {
-      // genshin-db 可选依赖
-      const genshindb = require('genshin-db');
-      // 尝试中文名, 失败则尝试英文名
-      let data = genshindb.characters(charName, { lang: 'Chinese' });
-      if (!data) {
-        // 通过别名找英文名再查
-        const meta = Array.from(this.characterRegistry.values()).find(m => m.name === charName);
-        if (meta) {
-          const aliases = Array.from(this.aliasMap.entries()).find(([, v]) => v === charName);
-          if (aliases) data = genshindb.characters(aliases[0], { matchAliases: true, lang: 'Chinese' });
-        }
-      }
-      if (!data?.images) return null;
-      return {
-        icon: data.images.mihoyo_icon || undefined,
-        card: data.images.card || undefined,
-        portrait: data.images.portrait || undefined,
-      };
-    } catch {
-      return null;
-    }
-  }
-
   // ==================== 私有加载方法 ====================
 
   /** 加载角色注册表 (顶层 data.json) */
   private async loadCharacterRegistry(): Promise<void> {
-    const dataPath = path.join(MIAO_DATA_DIR, 'character', 'data.json');
+    const dataPath = path.join(miaoDataDir(), 'character', 'data.json');
     if (!fs.existsSync(dataPath)) {
-      console.warn('[MiaoGuide] 角色注册表不存在，请先运行 init-miao-data');
+      console.warn('[MiaoGuide] 角色注册表不存在，按需下载未成功');
       return;
     }
 
@@ -187,7 +194,7 @@ export class MiaoGuideService {
 
   /** 加载全局圣遗物评分权重 (artis-mark.js) */
   private async loadArtifactWeights(): Promise<void> {
-    const weightPath = path.join(MIAO_DATA_DIR, 'artifact', 'artis-mark.js');
+    const weightPath = path.join(miaoDataDir(), 'artifact', 'artis-mark.js');
     if (!fs.existsSync(weightPath)) {
       console.warn('[MiaoGuide] artis-mark.js 不存在');
       return;
@@ -222,7 +229,7 @@ export class MiaoGuideService {
 
   /** 加载别名映射 (alias.js) */
   private async loadAliases(): Promise<void> {
-    const aliasPath = path.join(MIAO_DATA_DIR, 'character', 'alias.js');
+    const aliasPath = path.join(miaoDataDir(), 'character', 'alias.js');
     if (!fs.existsSync(aliasPath)) return;
 
     try {

@@ -1,26 +1,24 @@
 // ============================================================
 // 模块 C: 无头浏览器攻略图生成器 (GuideImageGenerator)
 //
-// 使用 Playwright 渲染 HTML/CSS 模板为 PNG 图片
+// 使用 HtmlToImage（CDP 直连系统 Edge/Chrome）渲染 HTML/CSS 模板为 PNG 图片
 // ============================================================
 
-import { chromium, Browser } from 'playwright';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { htmlToImage } from './browser-render';
 import { GuideData } from '../types';
 
 const TEMPLATE_DIR = path.join(__dirname, '..', 'templates');
 
-let browserInstance: Browser | null = null;
+let htmlSeq = 0;
 
-async function getBrowser(): Promise<Browser> {
-  if (!browserInstance || !browserInstance.isConnected()) {
-    browserInstance = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-  }
-  return browserInstance;
+/** 把待渲染的 HTML 落盘到临时文件（浏览器按 file:// 加载，相对资源才能解析） */
+function writeTempHtml(html: string): string {
+  const file = path.join(os.tmpdir(), `xingye-guide-${process.pid}-${++htmlSeq}.html`);
+  fs.writeFileSync(file, html, 'utf8');
+  return file;
 }
 
 export class GuideImageGenerator {
@@ -39,10 +37,7 @@ export class GuideImageGenerator {
 
   /** 关闭浏览器实例 */
   async shutdown(): Promise<void> {
-    if (browserInstance) {
-      await browserInstance.close();
-      browserInstance = null;
-    }
+    await htmlToImage.shutdown();
   }
 
   // ==================== 私有方法 ====================
@@ -92,35 +87,16 @@ export class GuideImageGenerator {
     html: string,
     viewport: { width: number; height: number }
   ): Promise<Buffer> {
-    const b = await getBrowser();
-    const page = await b.newPage();
-
+    const file = writeTempHtml(html);
     try {
-      await page.setViewportSize(viewport);
-      await page.setContent(html, { waitUntil: 'networkidle' });
-
-      // 等待 JS 渲染完成
-      await page.waitForTimeout(500);
-
-      // 获取实际内容高度 (Playwright evaluate 在浏览器上下文执行)
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const bodyHeight: number = await page.evaluate('document.body.scrollHeight');
-
-      // 截取完整页面
-      const screenshot = await page.screenshot({
-        type: 'png',
-        fullPage: true,
-        clip: {
-          x: 0,
-          y: 0,
-          width: viewport.width,
-          height: Math.min(bodyHeight, 2000),
-        },
+      return await htmlToImage.renderFile(file, {
+        width: viewport.width,
+        height: viewport.height,
+        scale: 2,
+        maxHeight: 2000,
       });
-
-      return Buffer.from(screenshot);
     } finally {
-      await page.close();
+      try { fs.unlinkSync(file); } catch { /* ignore */ }
     }
   }
 }

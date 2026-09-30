@@ -1,3 +1,9 @@
+// 开发期主题截图工具（**仅开发依赖**，不随发布包分发）
+//
+// 运行期已不再使用 Playwright：攻略/面板截图改由
+// genshin-guide/services/browser-render.ts 直连系统 Edge/Chrome 的 CDP 完成。
+// 本脚本需要交互式点击（切页、配色方案模拟），因此仍使用 Playwright，
+// 它只出现在 devDependencies 中；执行前请在 source/bot-backend 下 npm install。
 const { chromium } = require('playwright-core');
 const path = require('path');
 const OUT = process.env.TEMP || 'C:/Users/Leaf_/AppData/Local/Temp';

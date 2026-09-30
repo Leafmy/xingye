@@ -9,10 +9,12 @@
 import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { GS_CACHE_DIR, ensureDir } from '../../app-paths';
 
 const REPO_URL = 'https://github.com/yoimiya-kokomi/miao-plugin.git';
-const TARGET_DIR = path.join(__dirname, '..', 'miao-data');
-const TEMP_DIR = path.join(__dirname, '..', '.miao-temp');
+// 与 GenshinDataProvider 共用同一个可写缓存目录
+const TARGET_DIR = path.join(GS_CACHE_DIR, 'miao');
+const TEMP_DIR = path.join(GS_CACHE_DIR, '.miao-temp');
 
 /**
  * 初始化云崽元数据
@@ -55,7 +57,7 @@ export async function initMiaoData(force = false): Promise<void> {
     }
 
     // 2. 确保目标目录存在
-    fs.mkdirSync(metaGsDst, { recursive: true });
+    ensureDir(metaGsDst);
 
     // 3. 复制角色数据 (整个 character/ 目录)
     const characterSrc = path.join(srcBase, 'character');
