@@ -44,7 +44,8 @@ function ensureNameMap(): void {
   const file = charDataPath();
   if (!fs.existsSync(file)) return;
   try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // 上游文件可能带 UTF-8 BOM，先剥掉再解析
+    const data = JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
     for (const [id, meta] of Object.entries(data)) {
       idToName[Number(id)] = (meta as any).name;
     }

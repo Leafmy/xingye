@@ -173,8 +173,35 @@ export class GenshinDataProvider {
   private static basePromise: Promise<string> | null = null;
   private static charPromises = new Map<string, Promise<boolean>>();
   private static liangshiPromise: Promise<string> | null = null;
-  /** 上游是否已经明确不可用（避免每个角色都重试） */
-  private static upstreamDown = false;
+  /**
+   * 上游失败冷却截止时间。
+   * 断网时每条攻略指令都会重新触发一轮下载，若不做冷却，
+   * 用户连发 N 条指令就是 N 轮失败请求。冷却期内直接按「未就绪」返回，
+   * 但只冷却一段时间（而不是永久标记），网络恢复后无需重启进程即可自愈。
+   */
+  private static retryAfter = 0;
+
+  /** 失败后的重试冷却（默认 5 分钟） */
+  private static get cooldownMs(): number {
+    const v = Number(process.env.XINGYE_GS_RETRY_COOLDOWN_MS);
+    return Number.isFinite(v) && v >= 0 ? v : 300_000;
+  }
+
+  /** 当前是否处于失败冷却期 */
+  private static inCooldown(): boolean {
+    return Date.now() < this.retryAfter;
+  }
+
+  /** 记录一次失败并进入冷却 */
+  private static markFailed(reason: string): void {
+    this.retryAfter = Date.now() + this.cooldownMs;
+    console.warn(`[GSData] ${reason}；${Math.round(this.cooldownMs / 1000)}s 内不再重试`);
+  }
+
+  /** 清空冷却（成功时调用） */
+  private static markOk(): void {
+    this.retryAfter = 0;
+  }
 
   /** miao meta-gs 根目录（同步解析，可能尚未下载） */
   static miaoRoot(): string {
@@ -205,8 +232,11 @@ export class GenshinDataProvider {
     if (hasBase(this.miaoRoot())) return Promise.resolve(this.miaoRoot());
     if (this.basePromise) return this.basePromise;
 
+    const root = path.join(GS_CACHE_DIR, 'miao', 'meta-gs');
+    // 冷却期内不再发起请求：直接当作「尚未就绪」，由调用方给出提示
+    if (this.inCooldown()) return Promise.resolve(root);
+
     const task = (async () => {
-      const root = path.join(GS_CACHE_DIR, 'miao', 'meta-gs');
       console.log('[GSData] 首次使用原神攻略，正在拉取基础元数据（约 70KB）...');
       let ok = 0;
       for (const rel of MIAO_BASE_FILES) {
@@ -214,9 +244,9 @@ export class GenshinDataProvider {
         if (await downloadFile(url, path.join(root, rel), false)) ok++;
       }
       if (ok === 0) {
-        this.upstreamDown = true;
-        console.warn('[GSData] 基础元数据拉取失败：请检查网络或代理（XINGYE_GS_PROXY / STEAM_PROXY_URL）');
+        this.markFailed('基础元数据拉取失败：请检查网络或代理（XINGYE_GS_PROXY / STEAM_PROXY_URL）');
       } else {
+        this.markOk();
         console.log(`[GSData] 基础元数据就绪 (${ok}/${MIAO_BASE_FILES.length}) → ${root}`);
       }
       return root;
@@ -236,7 +266,7 @@ export class GenshinDataProvider {
 
     const inflight = this.charPromises.get(name);
     if (inflight) return inflight;
-    if (this.upstreamDown) return Promise.resolve(false);
+    if (this.inCooldown()) return Promise.resolve(false);
 
     const task = (async () => {
       let core = false;
@@ -246,8 +276,12 @@ export class GenshinDataProvider {
         const got = await downloadFile(url, path.join(dir, rel), optional);
         if (got && rel === 'data.json') core = true;
       }
-      if (core) console.log(`[GSData] 角色「${name}」数据已缓存 → ${dir}`);
-      else console.warn(`[GSData] 角色「${name}」数据拉取失败`);
+      if (core) {
+        this.markOk();
+        console.log(`[GSData] 角色「${name}」数据已缓存 → ${dir}`);
+      } else {
+        this.markFailed(`角色「${name}」数据拉取失败`);
+      }
       return core;
     })();
 
@@ -265,6 +299,8 @@ export class GenshinDataProvider {
     const root = this.liangshiRoot();
     if (isCompleteLiangshi(root)) return Promise.resolve(root);
     if (this.liangshiPromise) return this.liangshiPromise;
+    // 与元数据共用失败冷却：断网时不至于每次生成面板图都跑一次 git clone
+    if (this.inCooldown()) return Promise.resolve(root);
 
     this.liangshiPromise = (async () => {
       const temp = path.join(GS_CACHE_DIR, `.liangshi-temp-${process.pid}`);
@@ -283,9 +319,10 @@ export class GenshinDataProvider {
             fs.cpSync(src, path.join(root, sub), { recursive: true });
           }
         }
+        this.markOk();
         console.log(`[GSData] liangshi 渲染资源就绪 → ${root}`);
       } catch (err: any) {
-        console.warn(`[GSData] liangshi 资源拉取失败: ${err.message}`);
+        this.markFailed(`liangshi 资源拉取失败: ${err.message}`);
       } finally {
         try { fs.rmSync(temp, { recursive: true, force: true }); } catch { /* ignore */ }
         this.liangshiPromise = null;

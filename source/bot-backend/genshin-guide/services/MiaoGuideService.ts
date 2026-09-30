@@ -23,6 +23,16 @@ function miaoDataDir(): string {
   return GenshinDataProvider.miaoRoot();
 }
 
+/**
+ * 读取并解析 JSON 文件。
+ * 上游（含 Windows 下的各种工具）写出的 UTF-8 文件可能带 BOM，
+ * `JSON.parse` 遇到 BOM 会直接抛错——这里统一剥掉，避免整个注册表加载失败。
+ */
+function readJsonFile(file: string): any {
+  const text = fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
+  return JSON.parse(text);
+}
+
 export class MiaoGuideService {
   // ---- 内部缓存 ----
   private characterRegistry: Map<number, MiaoCharacterMeta> = new Map();
@@ -76,6 +86,14 @@ export class MiaoGuideService {
     await this.loadAliases();
 
     this.loaded = true;
+    if (this.characterRegistry.size === 0) {
+      // 文件已下载但解析不出角色：属于数据格式问题，而不是网络问题，
+      // 单独报出来避免被误判为「没联网」。
+      console.error(
+        '[MiaoGuide] 元数据文件已存在但角色注册表为空，请检查 character/data.json 的格式' +
+        `（路径: ${path.join(miaoDataDir(), 'character', 'data.json')}）`
+      );
+    }
     console.log(
       `[MiaoGuide] 元数据就绪: ` +
       `${this.characterRegistry.size} 个角色, ` +
@@ -130,7 +148,7 @@ export class MiaoGuideService {
     }
 
     try {
-      const raw = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      const raw = readJsonFile(dataPath);
       // 云崽格式可能是 { data: {...} } 或直接 {...}
       const data: MiaoCharacterData = raw.data || raw;
       this.characterDataCache.set(name, data);
@@ -183,7 +201,7 @@ export class MiaoGuideService {
     }
 
     try {
-      const raw = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+      const raw = readJsonFile(dataPath);
       for (const [id, data] of Object.entries(raw)) {
         this.characterRegistry.set(Number(id), data as MiaoCharacterMeta);
       }
