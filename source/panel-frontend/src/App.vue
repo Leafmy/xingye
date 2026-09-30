@@ -59,7 +59,6 @@ async function saveCloseBehavior(behavior: string) {
     closeBehaviorLoading.value = false
   }
 }
-const _showServerSettings = ref(false)
 const serverTestResult = ref<{ success: boolean; message: string } | null>(null)
 const serverTestLoading = ref(false)
 const tempServerUrl = ref('')
