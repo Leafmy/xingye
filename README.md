@@ -68,6 +68,9 @@ Xingye/
   `%LOCALAPPDATA%\com.xingye.bot\cache`。
 - 网络受限时可通过环境变量 `XINGYE_GS_PROXY` 指定代理
   （未设置时依次读取 `STEAM_PROXY_URL` / `HTTPS_PROXY` / `ALL_PROXY`）。
+- 下载失败后进入 **5 分钟冷却**（`XINGYE_GS_RETRY_COOLDOWN_MS` 可调），
+  期间重复发送攻略指令会立即返回「数据尚未就绪」而不是反复重试；
+  冷却结束后自动重试，无需重启进程。
 - 也可提前用 `source/bot-backend/genshin-guide/scripts/init-miao-data.ts` 预热缓存。
 
 
